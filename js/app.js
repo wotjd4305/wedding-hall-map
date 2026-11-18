@@ -10,20 +10,55 @@
   const PRICE_MAX = 15;
 
   // ── 저장소 (venue 이름 기준) ──────────────
+  // local: 이 브라우저(localStorage)에만 저장
+  // remote: Firebase Firestore에 저장 → 같은 링크로 들어온 사람끼리 실시간 공유
   const store = (() => {
     let data = {};
+    let remote = null;
+    const listeners = [];
     try { data = JSON.parse(localStorage.getItem(STORE_KEY) || "{}") || {}; } catch { data = {}; }
-    const save = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch {} };
+    const saveLocal = () => { try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch {} };
+    const clean = (o) => { Object.keys(o).forEach((k) => { if (o[k] === "" || o[k] == null) delete o[k]; }); return o; };
+
     return {
       get: (v) => data[v.name] || {},
-      set(v, patch) {
-        const cur = { ...(data[v.name] || {}), ...patch };
-        Object.keys(cur).forEach((k) => { if (cur[k] === "" || cur[k] == null) delete cur[k]; });
-        if (Object.keys(cur).length) data[v.name] = cur; else delete data[v.name];
-        save();
-      },
       all: () => data,
-      replace(next) { data = next || {}; save(); }
+      isShared: () => !!remote,
+      onChange: (cb) => listeners.push(cb),
+      set(v, patch) {
+        const cur = clean({ ...(data[v.name] || {}), ...patch });
+        if (Object.keys(cur).length) data[v.name] = cur; else delete data[v.name];
+        if (remote) remote.write(v.name, patch); else saveLocal();
+      },
+      replace(next, merge) {
+        next = next || {};
+        if (remote) {
+          if (!merge) Object.keys(data).forEach((name) => { if (!next[name]) remote.remove(name); });
+          Object.entries(next).forEach(([name, u]) => remote.write(name, { status: "", meal: "", rent: "", guests: "", memo: "", ...u }));
+        } else {
+          data = merge ? { ...data, ...next } : next;
+          saveLocal();
+        }
+      },
+      // Firestore 연결: 첫 스냅샷이 비어 있고 이 기기에 기존 메모가 있으면 올려줌
+      attach(api) {
+        const localBefore = data;
+        let first = true;
+        remote = api;
+        api.subscribe((next) => {
+          if (first) {
+            first = false;
+            if (!Object.keys(next).length && Object.keys(localBefore).length) {
+              Object.entries(localBefore).forEach(([name, u]) => api.write(name, u));
+              data = { ...localBefore };
+              listeners.forEach((cb) => cb());
+              return;
+            }
+          }
+          data = next;
+          listeners.forEach((cb) => cb());
+        });
+      }
     };
   })();
 
@@ -292,7 +327,7 @@
         const data = JSON.parse(await f.text());
         if (typeof data !== "object" || Array.isArray(data)) throw 0;
         const merge = confirm("기존 체크·메모에 합칠까요?\n[확인] 합치기  [취소] 덮어쓰기");
-        store.replace(merge ? { ...store.all(), ...data } : data);
+        store.replace(data, merge);
         VENUES.forEach((v) => map && map.refresh(v));
         render(); showBadge("가져오기 완료");
       } catch { alert("올바른 백업 파일이 아니에요."); }
@@ -467,8 +502,87 @@
       .catch(() => bootLeaflet("구글지도 로드 실패 → 기본 지도로 표시 중"));
   }
 
+  // ── 실시간 공유 (Firebase) ──────────────
+  function getRoom() {
+    const m = location.hash.match(/r=([A-Za-z0-9_-]{16,64})/);
+    let room = m && m[1];
+    try {
+      if (room) localStorage.setItem(STORE_KEY + ":room", room);
+      else room = localStorage.getItem(STORE_KEY + ":room");
+    } catch {}
+    if (!room) {
+      const bytes = crypto.getRandomValues(new Uint8Array(16));
+      room = btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      try { localStorage.setItem(STORE_KEY + ":room", room); } catch {}
+    }
+    if (!m) history.replaceState(null, "", `${location.pathname}${location.search}#r=${room}`);
+    return room;
+  }
+
+  async function connectFirebase(cfg) {
+    const V = "10.12.2";
+    const [{ initializeApp }, fs] = await Promise.all([
+      import(`https://www.gstatic.com/firebasejs/${V}/firebase-app.js`),
+      import(`https://www.gstatic.com/firebasejs/${V}/firebase-firestore.js`)
+    ]);
+    const db = fs.getFirestore(initializeApp(cfg));
+    const room = getRoom();
+    const col = fs.collection(db, "rooms", room, "venues");
+    const ref = (name) => fs.doc(col, encodeURIComponent(name));
+    const onErr = (e) => { console.error(e); showBadge("저장 실패 — Firebase 설정/규칙을 확인해 주세요"); };
+
+    store.attach({
+      write(name, patch) {
+        const body = { updatedAt: fs.serverTimestamp() };
+        Object.entries(patch).forEach(([k, val]) => { body[k] = (val === "" || val == null) ? fs.deleteField() : val; });
+        fs.setDoc(ref(name), body, { merge: true }).catch(onErr);
+      },
+      remove(name) { fs.deleteDoc(ref(name)).catch(onErr); },
+      subscribe(cb) {
+        fs.onSnapshot(col, (snap) => {
+          const next = {};
+          snap.forEach((d) => {
+            const x = { ...d.data() }; delete x.updatedAt;
+            if (Object.keys(x).length) next[decodeURIComponent(d.id)] = x;
+          });
+          cb(next);
+        }, onErr);
+      }
+    });
+  }
+
+  // 다른 사람이 수정하면: 입력 중엔 지도·숫자만, 아니면 목록까지 다시 그림
+  let pendingRender = false;
+  const editing = () => { const a = document.activeElement; return !!(a && a.closest && a.closest("[data-editor]")); };
+  store.onChange(() => {
+    if (map) VENUES.forEach((v) => map.refresh(v));
+    els.checked.textContent = Object.values(store.all()).filter((u) => u.status && u.status !== "nope").length;
+    if (editing()) { pendingRender = true; return; }
+    render();
+  });
+  els.list.addEventListener("focusout", () => {
+    if (!pendingRender) return;
+    setTimeout(() => { if (!editing()) { pendingRender = false; render(); } }, 250);
+  });
+
+  function setSyncUI() {
+    const shared = store.isShared();
+    $("#syncState").textContent = shared ? "🟢 함께 보는 중" : "이 기기에만 저장";
+    $("#shareBtn").hidden = !shared;
+  }
+  $("#shareBtn").addEventListener("click", async () => {
+    const url = location.href;
+    try { await navigator.clipboard.writeText(url); showBadge("링크 복사됨 — 이 링크를 가진 사람은 같이 보고 수정할 수 있어요"); }
+    catch { prompt("이 링크를 공유하세요", url); }
+  });
+
   buildControls();
   render();
+  setSyncUI();
+  const FB = window.APP_CONFIG && window.APP_CONFIG.FIREBASE_CONFIG;
+  if (FB && FB.apiKey && FB.projectId) {
+    connectFirebase(FB).then(setSyncUI).catch((e) => { console.error(e); showBadge("공유 저장소 연결 실패 — 이 기기에만 저장돼요"); });
+  }
   if (KEY) bootGoogle();
   else bootLeaflet("config.js에 구글지도 API 키를 넣으면 구글지도로 바뀌어요");
 })();

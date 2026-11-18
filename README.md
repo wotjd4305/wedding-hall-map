@@ -6,7 +6,8 @@
 - 지역(서울/경기) · 유형(호텔/컨벤션/채플/하우스/가든·야외/공공) 필터
 - 이름·동네·역 검색
 - **내 체크**: 관심 ⭐ / 상담예정 📞 / 투어완료 👀 / 계약 💍 / 제외 ✕ — 지도 핀에도 표시, 구분별 필터
-- **메모 + 식대·대관료·보증인원** 직접 입력 (브라우저 localStorage에 저장)
+- **메모 + 식대·대관료·보증인원** 직접 입력
+- **실시간 공유**: Firebase 설정 시 공유 링크(`#r=방ID`)를 가진 사람끼리 체크·메모 같이 보고 수정 (미설정 시 브라우저에만 저장)
 - **식대 슬라이더 필터** · 식대 낮은 순 정렬 (입력 전엔 유형별 추정치 사용, "직접 입력한 가격만" 옵션)
 - 체크·메모 **JSON 내보내기/가져오기** → 예비신부/신랑이랑 공유하거나 폰↔PC 옮길 때
 - 내 위치 기준 가까운 순 정렬
@@ -44,6 +45,17 @@ gh api -X POST repos/{owner}/wedding-hall-map/pages -f "source[branch]=main" -f 
 2. 사용자 인증 정보 → API 키 생성
 3. **키 제한 → HTTP 리퍼러**에 `https://<아이디>.github.io/*` 추가 (공개 repo라 필수)
 4. `js/config.js`의 `GOOGLE_MAPS_API_KEY`에 붙여넣고 push
+
+## 다같이 수정 (Firebase)
+1. [Firebase 콘솔](https://console.firebase.google.com/) → 프로젝트 추가 (애널리틱스 꺼도 됨)
+2. **빌드 → Firestore Database → 데이터베이스 만들기** → 위치 `asia-northeast3 (서울)` → 프로덕션 모드
+3. Firestore **규칙** 탭에 이 repo의 `firestore.rules` 내용 붙여넣고 게시
+4. 프로젝트 설정(⚙️) → 내 앱 → **웹 앱(</>) 추가** → 나오는 `firebaseConfig` 값을 `js/config.js`의 `FIREBASE_CONFIG`에 넣기
+5. 사이트 열고 **🔗 공유 링크 복사** → 같이 볼 사람한테 전달
+
+- 링크(방 ID)가 곧 열쇠라서, 링크 가진 사람은 누구나 수정 가능. 아는 사람한테만 공유.
+- 처음 연결될 때 이 기기에 있던 체크·메모는 자동으로 공유 방에 올라감.
+- `STATUSES` 구분을 바꾸면 `firestore.rules`의 status 목록도 같이 바꿔야 함.
 
 ## 웨딩홀 추가
 `js/venues.js` 배열에 한 줄 추가:

@@ -41,6 +41,9 @@ button { font: inherit; cursor: pointer; border: 0; background: none; color: inh
 .brand h1 { font-family: "Noto Serif KR", serif; font-size: 28px; font-weight: 700; margin-top: 6px; letter-spacing: -.02em; }
 .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
 .sub span { color: var(--ink); font-weight: 600; }
+.sub em { font-style: normal; }
+.share-btn { margin-top: 10px; height: 32px; padding: 0 12px; border-radius: 999px; background: var(--ink); color: #fff; font-size: 12.5px; font-weight: 600; }
+.share-btn[hidden] { display: none; }
 
 .controls { padding: 0 24px 14px; display: grid; gap: 10px; border-bottom: 1px solid var(--line); }
 

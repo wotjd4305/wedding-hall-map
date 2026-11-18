@@ -1,0 +1,13 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 공유 링크의 방 ID(#r=...)를 아는 사람만 읽고 쓸 수 있음. 방 목록 조회는 불가.
+    match /rooms/{room}/venues/{venue} {
+      allow read, delete: if room.size() >= 16;
+      allow create, update: if room.size() >= 16
+        && request.resource.data.keys().hasOnly(['status', 'meal', 'rent', 'guests', 'memo', 'updatedAt'])
+        && (!('memo' in request.resource.data) || (request.resource.data.memo is string && request.resource.data.memo.size() <= 3000))
+        && (!('status' in request.resource.data) || request.resource.data.status in ['fav', 'call', 'tour', 'pick', 'nope']);
+    }
+  }
+}
