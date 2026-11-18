@@ -1,5 +1,8 @@
 # 💍 서울·경기 웨딩홀 지도
 
+웨딩홀 512곳(서울 320 · 경기 184 · 울산 8) — 식대·대관료·수용·보증인원 포함.
+가격 데이터 출처: [결혼할지도](https://weddingmap.seungjun.dev/) (한국소비자원 참가격 · 아이웨딩·웨딩북·다이렉트 표기가, 2026-09-17 기준). 실제 견적은 업체에 확인.
+
 서울·경기권 웨딩홀을 지도 위에서 한눈에 보는 정적 웹사이트. GitHub Pages에 그대로 올리면 바로 동작함.
 
 ## 기능
@@ -57,8 +60,22 @@ gh api -X POST repos/{owner}/wedding-hall-map/pages -f "source[branch]=main" -f 
 - 처음 연결될 때 이 기기에 있던 체크·메모는 자동으로 공유 방에 올라감.
 - `STATUSES` 구분을 바꾸면 `firestore.rules`의 status 목록도 같이 바꿔야 함.
 
+## 접속자 표시
+공유 방에 지금 접속한 사람 수와 이름이 보임 (30초 하트비트). 내 이름 칩을 누르면 이름 변경. 메모·체크는 마지막 수정자 이름이 같이 저장됨.
+
+## 위치 자동 보정 (Places API)
+원본 데이터엔 주소가 없어서 처음엔 시군구 중심 근처에 점선 핀으로 찍힘. 구글지도 모드에서 **Places API (New)**가 켜져 있으면
+첫 방문 때 장소검색으로 정확한 좌표·주소를 찾아 Firestore `geo` 컬렉션에 캐시 → 이후엔 모두가 캐시 사용.
+- Cloud Console에서 **Places API (New)** 사용 설정 + API 키의 API 제한에 추가
+
+## 데이터 갱신
+`data/raw/*.txt` (결혼할지도 목록 복사본) 수정 후:
+```bash
+python3 scripts/build_venues.py   # → js/venues.js 재생성
+```
+
 ## 웨딩홀 추가
-`js/venues.js` 배열에 한 줄 추가:
+`scripts/build_venues.py`의 `EXTRAS`에 추가 후 빌드 (또는 `js/venues.js` 직접 수정):
 ```js
 { name: "웨딩홀 이름", region: "경기", area: "성남시 분당구", type: "convention", station: "서현역", lat: 37.38, lng: 127.12, note: "메모" }
 ```

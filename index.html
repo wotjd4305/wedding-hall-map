@@ -18,9 +18,10 @@
       <button class="sheet-handle" id="sheetHandle" aria-label="목록 펼치기/접기"><span></span></button>
 
       <header class="brand">
-        <p class="eyebrow">Seoul · Gyeonggi</p>
+        <p class="eyebrow">Seoul · Gyeonggi · Ulsan</p>
         <h1>웨딩홀 지도</h1>
         <p class="sub"><span id="count">0</span>곳 · 체크 <span id="checked">0</span>곳 · <em id="syncState"></em></p>
+        <div class="presence" id="presence" hidden></div>
         <button class="share-btn" id="shareBtn" hidden>🔗 공유 링크 복사</button>
       </header>
 
@@ -30,11 +31,7 @@
           <input id="q" type="search" placeholder="이름, 동네, 역, 메모 검색" autocomplete="off" />
         </div>
 
-        <div class="seg" id="regionSeg">
-          <button class="on" data-region="all">전체</button>
-          <button data-region="서울">서울</button>
-          <button data-region="경기">경기</button>
-        </div>
+        <div class="seg" id="regionSeg"></div>
 
         <div class="chips" id="typeChips"></div>
 
@@ -48,14 +45,22 @@
           <div class="chips" id="statusChips"></div>
 
           <div class="row-label">식대 (1인) <b id="priceVal">전체</b></div>
-          <input type="range" id="price" min="3" max="15" step="0.5" value="15" />
-          <label class="check"><input type="checkbox" id="onlyMine" /> 직접 입력한 가격만 보기</label>
+          <input type="range" id="price" min="3" max="20" step="0.5" value="20" />
+
+          <div class="row-label">대관료 <b id="rentVal">전체</b></div>
+          <input type="range" id="rent" min="0" max="2500" step="50" value="2500" />
+
+          <div class="row-label">하객 수 <b id="guestVal">전체</b></div>
+          <input type="range" id="guests" min="0" max="800" step="50" value="0" />
+
+          <label class="check"><input type="checkbox" id="onlyMine" /> 직접 견적 입력한 곳만</label>
 
           <div class="row-label">정렬</div>
-          <div class="seg seg-3" id="sortSeg">
+          <div class="seg seg-4" id="sortSeg">
             <button class="on" data-sort="default">기본</button>
             <button data-sort="near">가까운 순</button>
-            <button data-sort="price">식대 낮은 순</button>
+            <button data-sort="price">식대 ↑</button>
+            <button data-sort="rent">대관료 ↑</button>
           </div>
 
           <div class="backup">
@@ -69,7 +74,7 @@
       <ul class="list" id="list"></ul>
 
       <footer class="foot">
-        좌표·가격은 근사치/추정치예요. 공유 링크를 받은 사람끼리 체크·메모가 실시간으로 같이 보여요. 링크는 아는 사람에게만 보내세요.
+        가격 출처: <a href="https://weddingmap.seungjun.dev/" target="_blank" rel="noopener">결혼할지도</a> (한국소비자원 참가격 · 아이웨딩·웨딩북·다이렉트 표기가, 2026-09 기준). 실제 견적은 업체에 확인하세요. 공유 링크를 받은 사람끼리 체크·메모가 실시간으로 같이 보여요.
       </footer>
     </aside>
 
