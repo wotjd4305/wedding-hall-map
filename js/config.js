@@ -4,5 +4,5 @@
 // 키 발급: Google Cloud Console → "Maps JavaScript API" 사용 설정 → 사용자 인증 정보 → API 키
 // 보안: 키 제한 → "HTTP 리퍼러"에 https://<깃허브아이디>.github.io/* 추가 (필수!)
 window.APP_CONFIG = {
-  GOOGLE_MAPS_API_KEY: ""
+  GOOGLE_MAPS_API_KEY: "AIzaSyDn0UBKdl-DsNNlJdxgD9shoqTDn022dQk"
 };
