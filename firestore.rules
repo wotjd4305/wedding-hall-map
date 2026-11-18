@@ -11,6 +11,21 @@ service cloud.firestore {
         && (!('status' in request.resource.data) || request.resource.data.status in ['fav', 'call', 'tour', 'pick', 'nope']);
     }
 
+    // 사진: 썸네일(meta)과 원본(data)을 나눠 저장 — 원본은 클릭할 때만 읽음
+    match /rooms/{room}/photoMeta/{photo} {
+      allow read, delete: if room.size() >= 16;
+      allow create: if room.size() >= 16
+        && request.resource.data.keys().hasOnly(['venue', 'thumb', 'by', 'createdAt'])
+        && request.resource.data.venue is string && request.resource.data.venue.size() <= 100
+        && request.resource.data.thumb is string && request.resource.data.thumb.size() <= 40000;
+    }
+    match /rooms/{room}/photoData/{photo} {
+      allow read, delete: if room.size() >= 16;
+      allow create: if room.size() >= 16
+        && request.resource.data.keys().hasOnly(['data'])
+        && request.resource.data.data is string && request.resource.data.data.size() <= 1000000;
+    }
+
     // 접속자 표시 (하트비트)
     match /rooms/{room}/presence/{client} {
       allow read, delete: if room.size() >= 16;

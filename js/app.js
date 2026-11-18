@@ -76,6 +76,93 @@
     }
   };
 
+  // ── 사진 (공유 DB: photoMeta=썸네일, photoData=원본) ──
+  const photos = {
+    backend: null,
+    byVenue: {},
+    listeners: [],
+    of: (v) => photos.byVenue[v.name] || [],
+    set(list) {
+      const by = {};
+      list.forEach((p) => { (by[p.venue] = by[p.venue] || []).push(p); });
+      Object.values(by).forEach((a) => a.sort((x, y) => x.t - y.t));
+      photos.byVenue = by;
+      photos.listeners.forEach((cb) => cb());
+    }
+  };
+
+  function loadImage(file) {
+    return new Promise((res, rej) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); res(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); rej(new Error("이미지를 읽을 수 없어요")); };
+      img.src = url;
+    });
+  }
+  function shrink(img, max, quality, limit) {
+    const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    let q = quality, out = c.toDataURL("image/jpeg", q);
+    while (limit && out.length > limit && q > 0.35) { q -= 0.1; out = c.toDataURL("image/jpeg", q); }
+    return out;
+  }
+
+  async function uploadPhotos(v, files) {
+    if (!photos.backend) { alert("사진은 공유 모드(Firebase 연결)에서만 올릴 수 있어요."); return; }
+    const list = [...files].filter((f) => f.type.startsWith("image/"));
+    for (let i = 0; i < list.length; i++) {
+      showBadge(`사진 올리는 중… ${i + 1}/${list.length}`);
+      try {
+        const img = await loadImage(list[i]);
+        const thumb = shrink(img, 240, 0.6, 30000);
+        const full = shrink(img, 1280, 0.72, 900000);
+        await photos.backend.add(v.name, thumb, full);
+      } catch (e) { console.error(e); showBadge("사진 업로드 실패 — 규칙/용량을 확인해 주세요"); return; }
+    }
+    showBadge(`사진 ${list.length}장 올렸어요`);
+  }
+
+  // 라이트박스
+  async function openPhoto(v, id) {
+    const list = photos.of(v);
+    let idx = list.findIndex((p) => p.id === id);
+    if (idx < 0) return;
+    const box = document.createElement("div");
+    box.className = "lightbox";
+    document.body.appendChild(box);
+    const show = async () => {
+      const p = list[idx];
+      box.innerHTML = `<div class="lb-inner">
+        <img src="${p.thumb}" alt="" />
+        <div class="lb-bar">
+          <span>${esc(v.name)} · ${idx + 1}/${list.length}${p.by ? ` · ${esc(p.by)}` : ""}</span>
+          <span class="lb-btns">
+            ${list.length > 1 ? `<button data-lb="prev">‹</button><button data-lb="next">›</button>` : ""}
+            <button data-lb="del">삭제</button><button data-lb="close">닫기</button>
+          </span>
+        </div></div>`;
+      try { const full = await photos.backend.getFull(p.id); if (full && list[idx] === p) box.querySelector("img").src = full; } catch (e) { console.warn(e); }
+    };
+    const close = () => { box.remove(); document.removeEventListener("keydown", onKey); };
+    const onKey = (e) => { if (e.key === "Escape") close(); if (e.key === "ArrowRight") { idx = (idx + 1) % list.length; show(); } if (e.key === "ArrowLeft") { idx = (idx - 1 + list.length) % list.length; show(); } };
+    document.addEventListener("keydown", onKey);
+    box.addEventListener("click", async (e) => {
+      const a = e.target.closest("[data-lb]");
+      if (!a) { if (e.target === box) close(); return; }
+      const act = a.dataset.lb;
+      if (act === "close") close();
+      if (act === "next") { idx = (idx + 1) % list.length; show(); }
+      if (act === "prev") { idx = (idx - 1 + list.length) % list.length; show(); }
+      if (act === "del" && confirm("이 사진을 삭제할까요? 같이 보는 사람한테서도 지워져요.")) {
+        await photos.backend.remove(list[idx].id); close();
+      }
+    });
+    show();
+  }
+
   const state = {
     q: "",
     region: "all",
@@ -109,6 +196,12 @@
   const regionWord = (v) => (v.region === "서울" ? "서울" : v.region === "경기" ? "경기도" : v.region + "광역시");
   const gmapsUrl = (v) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(v.name + " " + regionWord(v) + " " + v.area)}`;
   const naverUrl = (v) => `https://map.naver.com/p/search/${encodeURIComponent(v.name)}`;
+  const imgUrl = (v) => `https://search.naver.com/search.naver?where=image&query=${encodeURIComponent(v.name + " 웨딩홀")}`;
+  const linksHtml = (v) => `<div class="links">
+        <a href="${gmapsUrl(v)}" target="_blank" rel="noopener">구글지도</a>
+        <a class="naver" href="${naverUrl(v)}" target="_blank" rel="noopener">네이버지도</a>
+        <a class="img" href="${imgUrl(v)}" target="_blank" rel="noopener">사진 검색</a>
+      </div>`;
   const num = (x) => { const n = parseFloat(String(x ?? "").replace(/,/g, "")); return Number.isFinite(n) ? n : null; };
   const n2 = (x) => String(Math.round(x * 100) / 100);
   function parseRange(x) {
@@ -177,6 +270,7 @@
     const t = TYPES[v.type], u = store.get(v), s = STATUSES[u.status], p = priceLines(v);
     return `<div class="iw">
       <div class="iw-tags"><span class="tag" style="background:${t.color}">${t.label}</span>${s ? `<span class="stag" style="color:${s.color}">${s.emoji} ${s.label}</span>` : ""}</div>
+      ${photos.of(v).length ? `<img class="iw-img" src="${photos.of(v)[0].thumb}" alt="" />` : ""}
       <h4>${esc(v.name)}</h4>
       <p>${esc(v.addr || `${v.region} ${v.area}`)}${v.approx ? ` <span class="approx">위치 대략</span>` : ""}</p>
       <p>🍽 식대 ${esc(p.mTxt)}</p>
@@ -185,10 +279,7 @@
       ${v.cap || guar(v) ? `<p>👥 수용 ${v.cap ?? "-"} · 보증 ${guar(v) ?? "-"}명${num(store.get(v).guests) != null ? " ✎" : ""}</p>` : ""}
       ${v.note ? `<p>${esc(v.note)}</p>` : ""}
       ${u.memo ? `<p class="iw-memo">📝 ${esc(u.memo)}</p>` : ""}
-      <div class="links">
-        <a href="${gmapsUrl(v)}" target="_blank" rel="noopener">구글지도</a>
-        <a class="naver" href="${naverUrl(v)}" target="_blank" rel="noopener">네이버지도</a>
-      </div>
+      ${linksHtml(v)}
     </div>`;
   }
 
@@ -222,6 +313,7 @@
     const t = TYPES[v.type], u = store.get(v), s = STATUSES[u.status], p = priceLines(v);
     const active = v.id === state.activeId;
     const gq = guar(v), gMine = num(u.guests) != null;
+    const phs = photos.of(v);
     const warn = state.guests > 0 && gq && state.guests < gq ? ` <b class="warn">보증 ${gq}명 미만</b>` : "";
     return `<li class="item ${active ? "active" : ""} ${u.status === "nope" ? "dim" : ""}" data-id="${v.id}">
       <div class="item-top">
@@ -229,6 +321,7 @@
         <h3>${esc(v.name)}</h3>
         ${s ? `<span class="stag" style="color:${s.color}">${s.emoji} ${s.label}</span>` : ""}
         ${v._d != null ? `<span class="dist">${v._d < 10 ? v._d.toFixed(1) : Math.round(v._d)}km</span>` : ""}
+        ${phs.length && !active ? `<span class="thumb"><img src="${phs[0].thumb}" alt="" />${phs.length > 1 ? `<b>${phs.length}</b>` : ""}</span>` : ""}
       </div>
       <div class="meta">
         <span>📍 ${esc(v.region === "서울" ? v.area : `${v.region} ${v.area}`)}</span>
@@ -263,12 +356,13 @@
         <label>주차<span><input data-field="parking" inputmode="numeric" placeholder="?" value="${esc(u.parking)}" />대</span></label>
       </div>
       <p class="hint">회색 글씨 = 원래 데이터. 고치면 같이 보는 사람한테도 반영되고, 지우면 원래 값으로 돌아가요. 범위는 <b>9.5~11</b>처럼.${v.mealOff ? ` 참가격 공시 식대 ${range({ lo: v.mealOff[0], hi: v.mealOff[1] })}.` : ""}</p>
+      <div class="photos">
+        ${photos.of(v).map((p) => `<img class="ph" data-photo="${p.id}" src="${p.thumb}" alt="" />`).join("")}
+        <label class="ph-add">＋ 사진<input type="file" accept="image/*" multiple hidden data-photo-input /></label>
+      </div>
       <textarea data-field="memo" rows="3" placeholder="메모 (투어 날짜, 주차, 밥맛, 홀 분위기…)">${esc(u.memo)}</textarea>
       ${u.by ? `<p class="hint">마지막 수정: ${esc(u.by)}</p>` : ""}
-      <div class="links">
-        <a href="${gmapsUrl(v)}" target="_blank" rel="noopener">구글지도</a>
-        <a class="naver" href="${naverUrl(v)}" target="_blank" rel="noopener">네이버지도</a>
-      </div>
+      ${linksHtml(v)}
     </div>`;
   }
 
@@ -427,9 +521,17 @@
         afterEdit(v, { full: true });
         return;
       }
+      const ph = e.target.closest("[data-photo]");
+      if (ph) { openPhoto(v, ph.dataset.photo); return; }
       if (e.target.closest("[data-editor]")) return;
       if (state.activeId === id) { state.activeId = null; rerenderItem(id); return; }
       select(id);
+    });
+
+    els.list.addEventListener("change", (e) => {
+      if (!e.target.matches("[data-photo-input]")) return;
+      const id = +e.target.closest(".item").dataset.id;
+      uploadPhotos(VENUES[id], e.target.files).finally(() => { e.target.value = ""; });
     });
 
     const saveT = {};
@@ -729,6 +831,29 @@
       set(name, val) { fs.setDoc(fs.doc(db, "geo", encodeURIComponent(name)), val).catch((e) => console.warn("geo 저장 실패", e)); }
     };
 
+    const metaCol = fs.collection(db, "rooms", room, "photoMeta");
+    const dataCol = fs.collection(db, "rooms", room, "photoData");
+    photos.backend = {
+      async add(venue, thumb, full) {
+        const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+        await fs.setDoc(fs.doc(dataCol, id), { data: full });
+        await fs.setDoc(fs.doc(metaCol, id), { venue, thumb, by: me.name, createdAt: fs.serverTimestamp() });
+      },
+      async remove(id) {
+        await fs.deleteDoc(fs.doc(metaCol, id));
+        await fs.deleteDoc(fs.doc(dataCol, id)).catch(() => {});
+      },
+      async getFull(id) { const d = await fs.getDoc(fs.doc(dataCol, id)); return d.exists() ? d.data().data : null; }
+    };
+    fs.onSnapshot(metaCol, (snap) => {
+      const list = [];
+      snap.forEach((d) => {
+        const x = d.data();
+        list.push({ id: d.id, venue: x.venue, thumb: x.thumb, by: x.by, t: x.createdAt && x.createdAt.toMillis ? x.createdAt.toMillis() : Date.now() });
+      });
+      photos.set(list);
+    }, (e) => console.warn("photo snapshot", e));
+
     // 접속자 표시: 30초마다 하트비트, 75초 넘게 소식 없으면 나간 걸로 봄
     const presCol = fs.collection(db, "rooms", room, "presence");
     const beat = () => fs.setDoc(fs.doc(presCol, me.id), { name: me.name, lastSeen: fs.serverTimestamp() }).catch((e) => console.warn(e));
@@ -773,6 +898,11 @@
   store.onChange(() => {
     if (map) VENUES.forEach((v) => map.refresh(v));
     updateChecked();
+    if (editing()) { pendingRender = true; return; }
+    render();
+  });
+  photos.listeners.push(() => {
+    if (state.activeId != null && map) map.refresh(VENUES[state.activeId]);
     if (editing()) { pendingRender = true; return; }
     render();
   });

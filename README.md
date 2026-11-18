@@ -60,6 +60,9 @@ gh api -X POST repos/{owner}/wedding-hall-map/pages -f "source[branch]=main" -f 
 - 처음 연결될 때 이 기기에 있던 체크·메모는 자동으로 공유 방에 올라감.
 - `STATUSES` 구분을 바꾸면 `firestore.rules`의 status 목록도 같이 바꿔야 함.
 
+## 사진
+카드 열고 **＋ 사진** → 브라우저에서 압축(원본 1280px, 썸네일 240px)해서 Firestore에 저장 (Storage/Blaze 요금제 불필요). 썸네일만 실시간 동기화, 원본은 클릭할 때 로드. **사진 검색** 버튼은 네이버 이미지 검색으로 연결.
+
 ## 접속자 표시
 공유 방에 지금 접속한 사람 수와 이름이 보임 (30초 하트비트). 내 이름 칩을 누르면 이름 변경. 메모·체크는 마지막 수정자 이름이 같이 저장됨.
 
