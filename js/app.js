@@ -36,7 +36,7 @@
         next = next || {};
         if (remote) {
           if (!merge) Object.keys(data).forEach((name) => { if (!next[name]) remote.remove(name); });
-          Object.entries(next).forEach(([name, u]) => remote.write(name, { status: "", meal: "", rent: "", guests: "", memo: "", ...u }));
+          Object.entries(next).forEach(([name, u]) => remote.write(name, { status: "", meal: "", rent: "", guests: "", flower: "", parking: "", memo: "", ...u }));
         } else {
           data = merge ? { ...data, ...next } : next;
           saveLocal();
@@ -84,6 +84,7 @@
     priceMax: MAX.price,
     rentMax: MAX.rent,
     guests: 0,
+    parkMin: 0,
     onlyMine: false,
     sort: "default",
     activeId: null,
@@ -96,7 +97,7 @@
     regionSeg: $("#regionSeg"), typeChips: $("#typeChips"), statusChips: $("#statusChips"),
     moreToggle: $("#moreToggle"), more: $("#more"),
     price: $("#price"), priceVal: $("#priceVal"), rent: $("#rent"), rentVal: $("#rentVal"),
-    guests: $("#guests"), guestVal: $("#guestVal"), onlyMine: $("#onlyMine"), sortSeg: $("#sortSeg"),
+    guests: $("#guests"), guestVal: $("#guestVal"), park: $("#park"), parkVal: $("#parkVal"), onlyMine: $("#onlyMine"), sortSeg: $("#sortSeg"),
     exportBtn: $("#exportBtn"), importBtn: $("#importBtn"), importFile: $("#importFile"),
     panel: $("#panel"), handle: $("#sheetHandle"), badge: $("#mapBadge")
   };
@@ -119,12 +120,28 @@
     if (v.mealOff) return { lo: v.mealOff[0], hi: v.mealOff[1], src: "off" };
     return null;
   }
-  function rent(v) {
+  function hallRent(v) {
     const mine = num(store.get(v).rent);
     if (mine != null) return { lo: mine, hi: mine, src: "mine" };
     if (v.rent) return { lo: v.rent[0], hi: v.rent[1], src: "ad" };
     return null;
   }
+  const flower = (v) => num(store.get(v).flower);
+  const parking = (v) => num(store.get(v).parking);
+  // 필터·정렬에 쓰는 대관료 = 대관료 + 꽃값(입력했을 때)
+  function rent(v) {
+    const r = hallRent(v), f = flower(v);
+    if (!r) return f != null ? { lo: f, hi: f, src: "mine" } : null;
+    return f != null ? { lo: r.lo + f, hi: r.hi + f, src: "mine" } : r;
+  }
+  // 예상 총액(최소) = 대관 + 꽃 + 식대 × 보증인원
+  function total(v) {
+    const r = hallRent(v), m = meal(v), g = num(store.get(v).guests) ?? v.guar;
+    if (!r || !m || !g) return null;
+    const f = flower(v);
+    return { lo: Math.round(r.lo + (f || 0) + m.lo * g), noFlower: f == null, g };
+  }
+  const won = (x) => x >= 10000 ? `${n2(x / 10000)}억` : `${x.toLocaleString()}만`;
   const range = (r, unit = "만") => {
     if (!r) return "-";
     if (r.hi === 0) return "0원";
@@ -140,10 +157,13 @@
   }
 
   function priceLines(v) {
-    const m = meal(v), r = rent(v);
+    const m = meal(v), r = hallRent(v), f = flower(v), pk = parking(v), t = total(v);
     const mTxt = m ? `${range(m)}${m.src === "mine" ? " (내 견적)" : m.src === "off" ? " (공시가)" : ""}` : "-";
     const rTxt = r ? `${range(r)}${r.src === "mine" ? " (내 견적)" : ""}` : "-";
-    return { m, r, mTxt, rTxt };
+    const fTxt = f == null ? "꽃 ?" : f === 0 ? "꽃 포함" : `꽃 ${n2(f)}만`;
+    const tTxt = t ? `예상 ${won(t.lo)}~${t.noFlower ? " +꽃" : ""} (보증 ${t.g}명 기준)` : "";
+    const pTxt = pk != null ? `🚗 주차 ${pk}대` : "";
+    return { m, r, mTxt, rTxt, fTxt, tTxt, pTxt, f };
   }
 
   function infoHtml(v) {
@@ -152,7 +172,9 @@
       <div class="iw-tags"><span class="tag" style="background:${t.color}">${t.label}</span>${s ? `<span class="stag" style="color:${s.color}">${s.emoji} ${s.label}</span>` : ""}</div>
       <h4>${esc(v.name)}</h4>
       <p>${esc(v.addr || `${v.region} ${v.area}`)}${v.approx ? ` <span class="approx">위치 대략</span>` : ""}</p>
-      <p>🍽 식대 ${esc(p.mTxt)} · 🏛 대관 ${esc(p.rTxt)}</p>
+      <p>🍽 식대 ${esc(p.mTxt)}</p>
+      <p>🏛 대관 ${esc(p.rTxt)} · 💐 ${esc(p.fTxt)}${p.pTxt ? ` · ${esc(p.pTxt)}` : ""}</p>
+      ${p.tTxt ? `<p><b>💰 ${esc(p.tTxt)}</b></p>` : ""}
       ${v.cap || v.guar ? `<p>👥 수용 ${v.cap ?? "-"} · 보증 ${v.guar ?? "-"}명</p>` : ""}
       ${v.note ? `<p>${esc(v.note)}</p>` : ""}
       ${u.memo ? `<p class="iw-memo">📝 ${esc(u.memo)}</p>` : ""}
@@ -172,10 +194,11 @@
       if (!state.types.has(v.type)) return false;
       if (state.statuses.size && !state.statuses.has(u.status || "none")) return false;
       const m = meal(v), r = rent(v);
-      if (state.onlyMine && num(u.meal) == null && num(u.rent) == null) return false;
+      if (state.onlyMine && ["meal", "rent", "flower", "parking"].every((k) => num(u[k]) == null)) return false;
       if (state.priceMax < MAX.price && (!m || m.lo > state.priceMax)) return false;
       if (state.rentMax < MAX.rent && (!r || r.lo > state.rentMax)) return false;
       if (state.guests > 0 && !(v.cap >= state.guests)) return false;
+      if (state.parkMin > 0 && !(parking(v) >= state.parkMin)) return false;
       if (q && ![v.name, v.area, v.region, v.addr, v.note, TYPES[v.type].label, u.memo].join(" ").toLowerCase().includes(q)) return false;
       return true;
     });
@@ -206,7 +229,10 @@
       <div class="meta">
         <span class="${p.m?.src === "mine" ? "mine" : ""}">🍽 ${esc(p.mTxt)}</span>
         <span class="${p.r?.src === "mine" ? "mine" : ""}">🏛 대관 ${esc(p.rTxt)}</span>
+        <span class="${p.f != null ? "mine" : "est"}">💐 ${esc(p.fTxt)}</span>
+        ${p.pTxt ? `<span class="mine">${esc(p.pTxt)}</span>` : ""}
       </div>
+      ${p.tTxt ? `<div class="total">💰 ${esc(p.tTxt)}</div>` : ""}
       ${v.note ? `<p class="note">${esc(v.note)}</p>` : ""}
       ${u.memo && !active ? `<p class="memo-preview">📝 ${esc(u.memo)}</p>` : ""}
       ${u.by && !active && (u.memo || u.status) ? `<p class="by">✎ ${esc(u.by)}</p>` : ""}
@@ -225,6 +251,8 @@
         <label>내 식대 견적<span><input data-field="meal" inputmode="decimal" placeholder="${ph(v.meal || v.mealOff)}" value="${esc(u.meal)}" />만원</span></label>
         <label>내 대관료 견적<span><input data-field="rent" inputmode="decimal" placeholder="${ph(v.rent)}" value="${esc(u.rent)}" />만원</span></label>
         <label>보증인원<span><input data-field="guests" inputmode="numeric" placeholder="${v.guar ?? "-"}" value="${esc(u.guests)}" />명</span></label>
+        <label>꽃값 (포함이면 0)<span><input data-field="flower" inputmode="decimal" placeholder="?" value="${esc(u.flower)}" />만원</span></label>
+        <label>주차<span><input data-field="parking" inputmode="numeric" placeholder="?" value="${esc(u.parking)}" />대</span></label>
       </div>
       ${v.mealOff ? `<p class="hint">참가격 공시 식대 ${range({ lo: v.mealOff[0], hi: v.mealOff[1] })}</p>` : ""}
       <textarea data-field="memo" rows="3" placeholder="메모 (투어 날짜, 주차, 밥맛, 홀 분위기…)">${esc(u.memo)}</textarea>
@@ -299,6 +327,7 @@
     els.priceVal.textContent = state.priceMax >= MAX.price ? "전체" : `${state.priceMax}만원 이하`;
     els.rentVal.textContent = state.rentMax >= MAX.rent ? "전체" : `${state.rentMax}만원 이하`;
     els.guestVal.textContent = state.guests ? `${state.guests}명 이상 수용` : "전체";
+    els.parkVal.textContent = state.parkMin ? `${state.parkMin}대 이상 (입력한 곳만)` : "전체";
   }
 
   const refit = () => { listLimit = LIST_LIMIT; render(); map && map.fit(filtered()); };
@@ -344,10 +373,11 @@
       state.priceMax = parseFloat(els.price.value);
       state.rentMax = parseFloat(els.rent.value);
       state.guests = parseInt(els.guests.value, 10);
+      state.parkMin = parseInt(els.park.value, 10);
       updateRangeLabels();
       clearTimeout(rt); rt = setTimeout(() => { listLimit = LIST_LIMIT; render(); }, 80);
     };
-    [els.price, els.rent, els.guests].forEach((el) => el.addEventListener("input", onRange));
+    [els.price, els.rent, els.guests, els.park].forEach((el) => el.addEventListener("input", onRange));
     els.onlyMine.addEventListener("change", () => { state.onlyMine = els.onlyMine.checked; refit(); });
 
     els.sortSeg.addEventListener("click", (e) => {
@@ -565,7 +595,7 @@
   async function refineLocations() {
     const cache = await geo.all();
     VENUES.forEach((v) => { if (cache[v.name]) applyGeo(v, cache[v.name]); });
-    if (!map || map.kind !== "google") return;
+    if (!map || map.kind !== "google" || !CFG.AUTO_GEOCODE) return;
 
     const todo = VENUES.filter((v) => v.approx && !cache[v.name]);
     if (!todo.length) return;

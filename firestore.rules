@@ -5,7 +5,7 @@ service cloud.firestore {
     match /rooms/{room}/venues/{venue} {
       allow read, delete: if room.size() >= 16;
       allow create, update: if room.size() >= 16
-        && request.resource.data.keys().hasOnly(['status', 'meal', 'rent', 'guests', 'memo', 'updatedAt', 'updatedBy'])
+        && request.resource.data.keys().hasOnly(['status', 'meal', 'rent', 'guests', 'flower', 'parking', 'memo', 'updatedAt', 'updatedBy'])
         && (!('memo' in request.resource.data) || (request.resource.data.memo is string && request.resource.data.memo.size() <= 3000))
         && (!('updatedBy' in request.resource.data) || (request.resource.data.updatedBy is string && request.resource.data.updatedBy.size() <= 20))
         && (!('status' in request.resource.data) || request.resource.data.status in ['fav', 'call', 'tour', 'pick', 'nope']);

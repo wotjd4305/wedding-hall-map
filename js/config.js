@@ -5,6 +5,9 @@ window.APP_CONFIG = {
 
   // 다같이 체크·메모 공유용 Firebase 설정 (Firebase 콘솔 → 프로젝트 설정 → 내 앱 → SDK 설정 및 구성)
   // null이면 체크·메모가 이 브라우저에만 저장돼요.
+  // true로 바꾸면 구글 Places API(New)로 웨딩홀 정확한 위치를 자동 보정 (Cloud Console에서 Places API (New) 켜야 함)
+  AUTO_GEOCODE: false,
+
   FIREBASE_CONFIG: {
     apiKey: "AIzaSyBuPVCEHgwr3XbiBLwT6ll_UJrjptc2ozg",
     authDomain: "wedding-57d95.firebaseapp.com",
