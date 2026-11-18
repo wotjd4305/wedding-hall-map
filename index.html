@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>서울·경기 웨딩홀 지도</title>
+  <meta name="description" content="서울·경기권 웨딩홀을 지도에서 한눈에 — 체크·메모·가격 필터" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💍</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;700&display=swap" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="panel" id="panel">
+      <button class="sheet-handle" id="sheetHandle" aria-label="목록 펼치기/접기"><span></span></button>
+
+      <header class="brand">
+        <p class="eyebrow">Seoul · Gyeonggi</p>
+        <h1>웨딩홀 지도</h1>
+        <p class="sub"><span id="count">0</span>곳 · 체크 <span id="checked">0</span>곳</p>
+      </header>
+
+      <div class="controls">
+        <div class="search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="q" type="search" placeholder="이름, 동네, 역, 메모 검색" autocomplete="off" />
+        </div>
+
+        <div class="seg" id="regionSeg">
+          <button class="on" data-region="all">전체</button>
+          <button data-region="서울">서울</button>
+          <button data-region="경기">경기</button>
+        </div>
+
+        <div class="chips" id="typeChips"></div>
+
+        <button class="more-toggle" id="moreToggle">
+          <span>내 체크 · 가격 · 정렬</span>
+          <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+
+        <div class="more" id="more" hidden>
+          <div class="row-label">내 체크</div>
+          <div class="chips" id="statusChips"></div>
+
+          <div class="row-label">식대 (1인) <b id="priceVal">전체</b></div>
+          <input type="range" id="price" min="3" max="15" step="0.5" value="15" />
+          <label class="check"><input type="checkbox" id="onlyMine" /> 직접 입력한 가격만 보기</label>
+
+          <div class="row-label">정렬</div>
+          <div class="seg seg-3" id="sortSeg">
+            <button class="on" data-sort="default">기본</button>
+            <button data-sort="near">가까운 순</button>
+            <button data-sort="price">식대 낮은 순</button>
+          </div>
+
+          <div class="backup">
+            <button id="exportBtn">체크·메모 내보내기</button>
+            <button id="importBtn">가져오기</button>
+            <input type="file" id="importFile" accept="application/json" hidden />
+          </div>
+        </div>
+      </div>
+
+      <ul class="list" id="list"></ul>
+
+      <footer class="foot">
+        좌표·가격은 근사치/추정치예요. 체크와 메모는 이 브라우저에 저장돼요 — 다른 기기로 옮길 땐 내보내기/가져오기를 쓰세요.
+      </footer>
+    </aside>
+
+    <main class="map-wrap">
+      <div id="map"></div>
+      <div class="map-badge" id="mapBadge" hidden></div>
+    </main>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/venues.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
