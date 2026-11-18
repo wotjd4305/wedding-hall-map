@@ -111,18 +111,25 @@
   const naverUrl = (v) => `https://map.naver.com/p/search/${encodeURIComponent(v.name)}`;
   const num = (x) => { const n = parseFloat(String(x ?? "").replace(/,/g, "")); return Number.isFinite(n) ? n : null; };
   const n2 = (x) => String(Math.round(x * 100) / 100);
+  function parseRange(x) {
+    const parts = String(x ?? "").replace(/[,만원\s]/g, "").split(/[~\-–]/).filter(Boolean).map(Number);
+    if (!parts.length || parts.some((n) => !Number.isFinite(n))) return null;
+    return { lo: Math.min(...parts), hi: Math.max(...parts) };
+  }
+  const rangeText = (a) => (a ? (a[0] === a[1] ? n2(a[0]) : `${n2(a[0])}~${n2(a[1])}`) : "");
+  const guar = (v) => num(store.get(v).guests) ?? v.guar ?? null;
 
   // 식대/대관료: 내 견적 > 표기가 > 공시가
   function meal(v) {
-    const mine = num(store.get(v).meal);
-    if (mine != null) return { lo: mine, hi: mine, src: "mine" };
+    const mine = parseRange(store.get(v).meal);
+    if (mine) return { ...mine, src: "mine" };
     if (v.meal) return { lo: v.meal[0], hi: v.meal[1], src: "ad" };
     if (v.mealOff) return { lo: v.mealOff[0], hi: v.mealOff[1], src: "off" };
     return null;
   }
   function hallRent(v) {
-    const mine = num(store.get(v).rent);
-    if (mine != null) return { lo: mine, hi: mine, src: "mine" };
+    const mine = parseRange(store.get(v).rent);
+    if (mine) return { ...mine, src: "mine" };
     if (v.rent) return { lo: v.rent[0], hi: v.rent[1], src: "ad" };
     return null;
   }
@@ -136,7 +143,7 @@
   }
   // 예상 총액(최소) = 대관 + 꽃 + 식대 × 보증인원
   function total(v) {
-    const r = hallRent(v), m = meal(v), g = num(store.get(v).guests) ?? v.guar;
+    const r = hallRent(v), m = meal(v), g = guar(v);
     if (!r || !m || !g) return null;
     const f = flower(v);
     return { lo: Math.round(r.lo + (f || 0) + m.lo * g), noFlower: f == null, g };
@@ -158,8 +165,8 @@
 
   function priceLines(v) {
     const m = meal(v), r = hallRent(v), f = flower(v), pk = parking(v), t = total(v);
-    const mTxt = m ? `${range(m)}${m.src === "mine" ? " (내 견적)" : m.src === "off" ? " (공시가)" : ""}` : "-";
-    const rTxt = r ? `${range(r)}${r.src === "mine" ? " (내 견적)" : ""}` : "-";
+    const mTxt = m ? `${range(m)}${m.src === "mine" ? " ✎" : m.src === "off" ? " (공시가)" : ""}` : "-";
+    const rTxt = r ? `${range(r)}${r.src === "mine" ? " ✎" : ""}` : "-";
     const fTxt = f == null ? "꽃 ?" : f === 0 ? "꽃 포함" : `꽃 ${n2(f)}만`;
     const tTxt = t ? `예상 ${won(t.lo)}~${t.noFlower ? " +꽃" : ""} (보증 ${t.g}명 기준)` : "";
     const pTxt = pk != null ? `🚗 주차 ${pk}대` : "";
@@ -175,7 +182,7 @@
       <p>🍽 식대 ${esc(p.mTxt)}</p>
       <p>🏛 대관 ${esc(p.rTxt)} · 💐 ${esc(p.fTxt)}${p.pTxt ? ` · ${esc(p.pTxt)}` : ""}</p>
       ${p.tTxt ? `<p><b>💰 ${esc(p.tTxt)}</b></p>` : ""}
-      ${v.cap || v.guar ? `<p>👥 수용 ${v.cap ?? "-"} · 보증 ${v.guar ?? "-"}명</p>` : ""}
+      ${v.cap || guar(v) ? `<p>👥 수용 ${v.cap ?? "-"} · 보증 ${guar(v) ?? "-"}명${num(store.get(v).guests) != null ? " ✎" : ""}</p>` : ""}
       ${v.note ? `<p>${esc(v.note)}</p>` : ""}
       ${u.memo ? `<p class="iw-memo">📝 ${esc(u.memo)}</p>` : ""}
       <div class="links">
@@ -214,7 +221,8 @@
   function itemHtml(v) {
     const t = TYPES[v.type], u = store.get(v), s = STATUSES[u.status], p = priceLines(v);
     const active = v.id === state.activeId;
-    const warn = state.guests > 0 && v.guar && state.guests < v.guar ? ` <b class="warn">보증 ${v.guar}명</b>` : "";
+    const gq = guar(v), gMine = num(u.guests) != null;
+    const warn = state.guests > 0 && gq && state.guests < gq ? ` <b class="warn">보증 ${gq}명 미만</b>` : "";
     return `<li class="item ${active ? "active" : ""} ${u.status === "nope" ? "dim" : ""}" data-id="${v.id}">
       <div class="item-top">
         <span class="tag" style="background:${t.color}">${t.label}</span>
@@ -224,7 +232,7 @@
       </div>
       <div class="meta">
         <span>📍 ${esc(v.region === "서울" ? v.area : `${v.region} ${v.area}`)}</span>
-        ${v.cap ? `<span>👥 ${v.cap}명 (보증 ${v.guar ?? "-"})${warn}</span>` : ""}
+        ${v.cap || gq ? `<span>👥 수용 ${v.cap ?? "-"} · <span class="${gMine ? "mine" : ""}">보증 ${gq ?? "-"}${gMine ? " ✎" : ""}</span>${warn}</span>` : ""}
       </div>
       <div class="meta">
         <span class="${p.m?.src === "mine" ? "mine" : ""}">🍽 ${esc(p.mTxt)}</span>
@@ -241,20 +249,20 @@
   }
 
   function editorHtml(v, u) {
-    const ph = (r) => (r ? n2(r[0]) : "-");
+    const ph = (a) => rangeText(a) || "-";
     return `<div class="editor" data-editor>
       <div class="status-row">
         ${Object.entries(STATUSES).map(([k, s]) =>
           `<button class="sbtn ${u.status === k ? "on" : ""}" data-status="${k}" style="--c:${s.color}">${s.emoji} ${s.label}</button>`).join("")}
       </div>
       <div class="fields">
-        <label>내 식대 견적<span><input data-field="meal" inputmode="decimal" placeholder="${ph(v.meal || v.mealOff)}" value="${esc(u.meal)}" />만원</span></label>
-        <label>내 대관료 견적<span><input data-field="rent" inputmode="decimal" placeholder="${ph(v.rent)}" value="${esc(u.rent)}" />만원</span></label>
+        <label>식대 (1인)<span><input data-field="meal" placeholder="${ph(v.meal || v.mealOff)}" value="${esc(u.meal)}" />만원</span></label>
+        <label>대관료<span><input data-field="rent" placeholder="${ph(v.rent)}" value="${esc(u.rent)}" />만원</span></label>
         <label>보증인원<span><input data-field="guests" inputmode="numeric" placeholder="${v.guar ?? "-"}" value="${esc(u.guests)}" />명</span></label>
         <label>꽃값 (포함이면 0)<span><input data-field="flower" inputmode="decimal" placeholder="?" value="${esc(u.flower)}" />만원</span></label>
         <label>주차<span><input data-field="parking" inputmode="numeric" placeholder="?" value="${esc(u.parking)}" />대</span></label>
       </div>
-      ${v.mealOff ? `<p class="hint">참가격 공시 식대 ${range({ lo: v.mealOff[0], hi: v.mealOff[1] })}</p>` : ""}
+      <p class="hint">회색 글씨 = 원래 데이터. 고치면 같이 보는 사람한테도 반영되고, 지우면 원래 값으로 돌아가요. 범위는 <b>9.5~11</b>처럼.${v.mealOff ? ` 참가격 공시 식대 ${range({ lo: v.mealOff[0], hi: v.mealOff[1] })}.` : ""}</p>
       <textarea data-field="memo" rows="3" placeholder="메모 (투어 날짜, 주차, 밥맛, 홀 분위기…)">${esc(u.memo)}</textarea>
       ${u.by ? `<p class="hint">마지막 수정: ${esc(u.by)}</p>` : ""}
       <div class="links">
@@ -291,6 +299,17 @@
     const v = state.me ? { ...VENUES[id], _d: km(state.me, VENUES[id]) } : VENUES[id];
     el.outerHTML = itemHtml(v);
     return true;
+  }
+
+  // 입력 중에도 카드 위쪽 숫자(식대·대관·보증·총액)는 바로 갱신
+  function refreshMeta(id) {
+    const el = els.list.querySelector(`.item[data-id="${id}"]`); if (!el) return;
+    const tmp = document.createElement("div");
+    tmp.innerHTML = itemHtml(state.me ? { ...VENUES[id], _d: km(state.me, VENUES[id]) } : VENUES[id]);
+    const fresh = tmp.firstElementChild;
+    el.querySelectorAll(":scope > .meta, :scope > .total").forEach((n) => n.remove());
+    const anchor = el.querySelector(":scope > .item-top");
+    [...fresh.querySelectorAll(":scope > .meta, :scope > .total")].reverse().forEach((n) => anchor.after(n));
   }
 
   function select(id, { pan = true } = {}) {
@@ -418,7 +437,7 @@
       const f = e.target.dataset.field; if (!f) return;
       const id = +e.target.closest(".item").dataset.id, v = VENUES[id], key = id + ":" + f, val = e.target.value.trim();
       clearTimeout(saveT[key]);
-      saveT[key] = setTimeout(() => { store.set(v, { [f]: val }); afterEdit(v); }, 300);
+      saveT[key] = setTimeout(() => { store.set(v, { [f]: val }); afterEdit(v); refreshMeta(id); }, 300);
     });
 
     els.exportBtn.addEventListener("click", () => {
