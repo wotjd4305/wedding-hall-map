@@ -36,7 +36,7 @@
         next = next || {};
         if (remote) {
           if (!merge) Object.keys(data).forEach((name) => { if (!next[name]) remote.remove(name); });
-          Object.entries(next).forEach(([name, u]) => remote.write(name, { status: "", meal: "", rent: "", guests: "", flower: "", parking: "", memo: "", ...u }));
+          Object.entries(next).forEach(([name, u]) => remote.write(name, { status: "", meal: "", rent: "", guests: "", flower: "", parking: "", memo: "", bookable: "", phone: "", ...u }));
         } else {
           data = merge ? { ...data, ...next } : next;
           saveLocal();
@@ -172,6 +172,7 @@
     rentMax: MAX.rent,
     guests: 0,
     parkMin: 0,
+    bookableMax: "",
     onlyMine: false,
     sort: "default",
     activeId: null,
@@ -184,7 +185,9 @@
     regionSeg: $("#regionSeg"), typeChips: $("#typeChips"), statusChips: $("#statusChips"),
     moreToggle: $("#moreToggle"), more: $("#more"),
     price: $("#price"), priceVal: $("#priceVal"), rent: $("#rent"), rentVal: $("#rentVal"),
-    guests: $("#guests"), guestVal: $("#guestVal"), park: $("#park"), parkVal: $("#parkVal"), onlyMine: $("#onlyMine"), sortSeg: $("#sortSeg"),
+    guests: $("#guests"), guestVal: $("#guestVal"), park: $("#park"), parkVal: $("#parkVal"),
+    bookableFilter: $("#bookableFilter"), bookableVal: $("#bookableVal"), bookableFilterClear: $("#bookableFilterClear"),
+    onlyMine: $("#onlyMine"), sortSeg: $("#sortSeg"),
     exportBtn: $("#exportBtn"), importBtn: $("#importBtn"), importFile: $("#importFile"),
     panel: $("#panel"), handle: $("#sheetHandle"), badge: $("#mapBadge")
   };
@@ -198,6 +201,7 @@
   const naverUrl = (v) => `https://map.naver.com/p/search/${encodeURIComponent(v.name)}`;
   const imgUrl = (v) => `https://search.naver.com/search.naver?where=image&query=${encodeURIComponent(v.name + " 웨딩홀")}`;
   const linksHtml = (v) => `<div class="links">
+        ${phone(v) ? `<a class="call" href="tel:${phone(v).replace(/[^\d+]/g, "")}">📞 ${esc(phone(v))}</a>` : ""}
         <a href="${gmapsUrl(v)}" target="_blank" rel="noopener">구글지도</a>
         <a class="naver" href="${naverUrl(v)}" target="_blank" rel="noopener">네이버지도</a>
         <a class="img" href="${imgUrl(v)}" target="_blank" rel="noopener">사진 검색</a>
@@ -228,6 +232,19 @@
   }
   const flower = (v) => num(store.get(v).flower);
   const parking = (v) => num(store.get(v).parking);
+  const phone = (v) => (store.get(v).phone || "").trim() || null;
+  // 예약 가능 월: "26.12부터 가능", "2026-12" 처럼 자유롭게 메모식으로 써도 됨 — 그 안에서 YYYY-MM을 찾아 필터에 씀
+  const bookable = (v) => (store.get(v).bookable || "").trim() || null;
+  function bookableMonth(v) {
+    const s = bookable(v);
+    if (!s) return null;
+    const m = s.match(/(\d{4}|\d{2})\s*[.\-\/년]\s*(\d{1,2})\s*월?/);
+    if (!m) return null;
+    const y = m[1].length === 2 ? "20" + m[1] : m[1];
+    const mo = m[2].padStart(2, "0");
+    if (+mo < 1 || +mo > 12) return null;
+    return `${y}-${mo}`;
+  }
   // 필터·정렬에 쓰는 대관료 = 대관료 + 꽃값(입력했을 때)
   function rent(v) {
     const r = hallRent(v), f = flower(v);
@@ -263,7 +280,9 @@
     const fTxt = f == null ? "꽃 ?" : f === 0 ? "꽃 포함" : `꽃 ${n2(f)}만`;
     const tTxt = t ? `예상 ${won(t.lo)}~${t.noFlower ? " +꽃" : ""} (보증 ${t.g}명 기준)` : "";
     const pTxt = pk != null ? `🚗 주차 ${pk}대` : "";
-    return { m, r, mTxt, rTxt, fTxt, tTxt, pTxt, f };
+    const bk = bookable(v);
+    const bTxt = bk ? `📅 예약가능 ${bk}` : "";
+    return { m, r, mTxt, rTxt, fTxt, tTxt, pTxt, bTxt, f };
   }
 
   function infoHtml(v) {
@@ -277,6 +296,7 @@
       <p>🏛 대관 ${esc(p.rTxt)} · 💐 ${esc(p.fTxt)}${p.pTxt ? ` · ${esc(p.pTxt)}` : ""}</p>
       ${p.tTxt ? `<p><b>💰 ${esc(p.tTxt)}</b></p>` : ""}
       ${v.cap || guar(v) ? `<p>👥 수용 ${v.cap ?? "-"} · 보증 ${guar(v) ?? "-"}명${num(store.get(v).guests) != null ? " ✎" : ""}</p>` : ""}
+      ${p.bTxt ? `<p class="mine">${esc(p.bTxt)}</p>` : ""}
       ${v.note ? `<p>${esc(v.note)}</p>` : ""}
       ${u.memo ? `<p class="iw-memo">📝 ${esc(u.memo)}</p>` : ""}
       ${linksHtml(v)}
@@ -292,12 +312,13 @@
       if (!state.types.has(v.type)) return false;
       if (state.statuses.size && !state.statuses.has(u.status || "none")) return false;
       const m = meal(v), r = rent(v);
-      if (state.onlyMine && ["meal", "rent", "flower", "parking"].every((k) => num(u[k]) == null)) return false;
+      if (state.onlyMine && ["meal", "rent", "flower", "parking"].every((k) => num(u[k]) == null) && !bookable(v)) return false;
       if (state.priceMax < MAX.price && (!m || m.lo > state.priceMax)) return false;
       if (state.rentMax < MAX.rent && (!r || r.lo > state.rentMax)) return false;
       if (state.guests > 0 && !(v.cap >= state.guests)) return false;
       if (state.parkMin > 0 && !(parking(v) >= state.parkMin)) return false;
-      if (q && ![v.name, v.area, v.region, v.addr, v.note, TYPES[v.type].label, u.memo].join(" ").toLowerCase().includes(q)) return false;
+      if (state.bookableMax) { const bm = bookableMonth(v); if (!bm || bm > state.bookableMax) return false; }
+      if (q && ![v.name, v.area, v.region, v.addr, v.note, TYPES[v.type].label, u.memo, u.bookable].join(" ").toLowerCase().includes(q)) return false;
       return true;
     });
 
@@ -334,6 +355,7 @@
         ${p.pTxt ? `<span class="mine">${esc(p.pTxt)}</span>` : ""}
       </div>
       ${p.tTxt ? `<div class="total">💰 ${esc(p.tTxt)}</div>` : ""}
+      ${p.bTxt && !active ? `<p class="memo-preview">${esc(p.bTxt)}</p>` : ""}
       ${v.note ? `<p class="note">${esc(v.note)}</p>` : ""}
       ${u.memo && !active ? `<p class="memo-preview">📝 ${esc(u.memo)}</p>` : ""}
       ${u.by && !active && (u.memo || u.status) ? `<p class="by">✎ ${esc(u.by)}</p>` : ""}
@@ -354,8 +376,10 @@
         <label>보증인원<span><input data-field="guests" inputmode="numeric" placeholder="${v.guar ?? "-"}" value="${esc(u.guests)}" />명</span></label>
         <label>꽃값 (포함이면 0)<span><input data-field="flower" inputmode="decimal" placeholder="?" value="${esc(u.flower)}" />만원</span></label>
         <label>주차<span><input data-field="parking" inputmode="numeric" placeholder="?" value="${esc(u.parking)}" />대</span></label>
+        <label>예약 가능 월<span><input data-field="bookable" placeholder="예: 26.12부터, 27.3 잔여" value="${esc(u.bookable)}" /></span></label>
+        <label>전화번호<span><input data-field="phone" type="tel" placeholder="02-1234-5678" value="${esc(u.phone)}" /></span></label>
       </div>
-      <p class="hint">회색 글씨 = 원래 데이터. 고치면 같이 보는 사람한테도 반영되고, 지우면 원래 값으로 돌아가요. 범위는 <b>9.5~11</b>처럼.${v.mealOff ? ` 참가격 공시 식대 ${range({ lo: v.mealOff[0], hi: v.mealOff[1] })}.` : ""}</p>
+      <p class="hint">회색 글씨 = 원래 데이터. 고치면 같이 보는 사람한테도 반영되고, 지우면 원래 값으로 돌아가요. 범위는 <b>9.5~11</b>처럼.${v.mealOff ? ` 참가격 공시 식대 ${range({ lo: v.mealOff[0], hi: v.mealOff[1] })}.` : ""} 예약 가능 월엔 업체에 확인한 내용을 자유롭게 적어두면 되고(예: <b>26.12부터</b>), 그 안의 연·월로 위쪽 필터가 동작해요.</p>
       <div class="photos">
         ${photos.of(v).map((p) => `<img class="ph" data-photo="${p.id}" src="${p.thumb}" alt="" />`).join("")}
         <label class="ph-add">＋ 사진<input type="file" accept="image/*" multiple hidden data-photo-input /></label>
@@ -441,6 +465,7 @@
     els.rentVal.textContent = state.rentMax >= MAX.rent ? "전체" : `${state.rentMax}만원 이하`;
     els.guestVal.textContent = state.guests ? `${state.guests}명 이상 수용` : "전체";
     els.parkVal.textContent = state.parkMin ? `${state.parkMin}대 이상 (입력한 곳만)` : "전체";
+    els.bookableVal.textContent = state.bookableMax ? `${state.bookableMax}까지 가능한 곳만` : "전체";
   }
 
   const refit = () => { listLimit = LIST_LIMIT; render(); map && map.fit(filtered()); };
@@ -492,6 +517,17 @@
     };
     [els.price, els.rent, els.guests, els.park].forEach((el) => el.addEventListener("input", onRange));
     els.onlyMine.addEventListener("change", () => { state.onlyMine = els.onlyMine.checked; refit(); });
+
+    els.bookableFilter.addEventListener("change", () => {
+      state.bookableMax = els.bookableFilter.value;
+      updateRangeLabels();
+      listLimit = LIST_LIMIT; render();
+    });
+    els.bookableFilterClear.addEventListener("click", () => {
+      els.bookableFilter.value = ""; state.bookableMax = "";
+      updateRangeLabels();
+      listLimit = LIST_LIMIT; render();
+    });
 
     els.sortSeg.addEventListener("click", (e) => {
       const b = e.target.closest("button"); if (!b) return;

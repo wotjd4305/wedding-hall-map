@@ -99,6 +99,10 @@ button { font: inherit; cursor: pointer; border: 0; background: none; color: inh
 .row-label { font-size: 12px; color: var(--muted); font-weight: 600; margin-top: 4px; display: flex; justify-content: space-between; }
 .row-label b { color: var(--accent); }
 input[type=range] { width: 100%; accent-color: var(--accent); }
+.month-filter { display: flex; gap: 6px; }
+.month-filter input[type=month] { flex: 1; height: 34px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); font-size: 13px; color: var(--ink); min-width: 0; }
+.month-filter input[type=month]:focus { border-color: var(--accent); }
+.month-filter button { padding: 0 10px; border-radius: 8px; border: 1px dashed var(--line); font-size: 12px; color: var(--muted); background: var(--card); white-space: nowrap; }
 .check { font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .check input { accent-color: var(--accent); }
 .chip .e { font-size: 12px; }
@@ -141,6 +145,7 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
   padding: 7px 0; border-radius: 8px; background: var(--accent-soft); color: var(--accent);
 }
 .editor .links a.naver, .iw a.naver { background: #E8F6EC; color: #1E8E3E; }
+.editor .links a.call, .iw a.call { background: #FDEDEC; color: #C0392B; }
 
 /* ── Map ─────────────────────────────── */
 .map-wrap { flex: 1; position: relative; }
