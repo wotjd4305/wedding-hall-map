@@ -36,7 +36,7 @@
         next = next || {};
         if (remote) {
           if (!merge) Object.keys(data).forEach((name) => { if (!next[name]) remote.remove(name); });
-          Object.entries(next).forEach(([name, u]) => remote.write(name, { status: "", meal: "", rent: "", guests: "", flower: "", parking: "", memo: "", bookable: "", phone: "", ...u }));
+          Object.entries(next).forEach(([name, u]) => remote.write(name, { status: "", meal: "", rent: "", guests: "", flower: "", parking: "", memo: "", bookables: "", phone: "", ...u }));
         } else {
           data = merge ? { ...data, ...next } : next;
           saveLocal();
@@ -173,6 +173,7 @@
     guests: 0,
     parkMin: 0,
     bookableMax: "",
+    onlyBookable: false,
     onlyMine: false,
     sort: "default",
     activeId: null,
@@ -186,7 +187,7 @@
     moreToggle: $("#moreToggle"), more: $("#more"),
     price: $("#price"), priceVal: $("#priceVal"), rent: $("#rent"), rentVal: $("#rentVal"),
     guests: $("#guests"), guestVal: $("#guestVal"), park: $("#park"), parkVal: $("#parkVal"),
-    bookableFilter: $("#bookableFilter"), bookableVal: $("#bookableVal"), bookableFilterClear: $("#bookableFilterClear"),
+    bookableFilter: $("#bookableFilter"), bookableVal: $("#bookableVal"), bookableFilterClear: $("#bookableFilterClear"), onlyBookable: $("#onlyBookable"),
     onlyMine: $("#onlyMine"), sortSeg: $("#sortSeg"),
     exportBtn: $("#exportBtn"), importBtn: $("#importBtn"), importFile: $("#importFile"),
     panel: $("#panel"), handle: $("#sheetHandle"), badge: $("#mapBadge")
@@ -233,18 +234,11 @@
   const flower = (v) => num(store.get(v).flower);
   const parking = (v) => num(store.get(v).parking);
   const phone = (v) => (store.get(v).phone || "").trim() || null;
-  // 예약 가능 월: "26.12부터 가능", "2026-12" 처럼 자유롭게 메모식으로 써도 됨 — 그 안에서 YYYY-MM을 찾아 필터에 씀
-  const bookable = (v) => (store.get(v).bookable || "").trim() || null;
-  function bookableMonth(v) {
-    const s = bookable(v);
-    if (!s) return null;
-    const m = s.match(/(\d{4}|\d{2})\s*[.\-\/년]\s*(\d{1,2})\s*월?/);
-    if (!m) return null;
-    const y = m[1].length === 2 ? "20" + m[1] : m[1];
-    const mo = m[2].padStart(2, "0");
-    if (+mo < 1 || +mo > 12) return null;
-    return `${y}-${mo}`;
-  }
+  // 예약 가능 월: 월·성수기/비수기·식대를 행 단위로 직접 입력 (내가 전화로 확인한 값)
+  const rawBookRows = (v) => store.get(v).bookables || [];
+  const bookRows = (v) => rawBookRows(v).filter((r) => r && r.month);
+  const earliestBookMonth = (v) => bookRows(v).map((r) => r.month).sort()[0] || null;
+  const bookLine = (r) => `📅 ${r.month.replace("-", ".")} ${r.season === "off" ? "비수기" : "성수기"}${r.meal ? ` 식대 ${esc(r.meal)}만` : ""}`;
   // 필터·정렬에 쓰는 대관료 = 대관료 + 꽃값(입력했을 때)
   function rent(v) {
     const r = hallRent(v), f = flower(v);
@@ -280,9 +274,8 @@
     const fTxt = f == null ? "꽃 ?" : f === 0 ? "꽃 포함" : `꽃 ${n2(f)}만`;
     const tTxt = t ? `예상 ${won(t.lo)}~${t.noFlower ? " +꽃" : ""} (보증 ${t.g}명 기준)` : "";
     const pTxt = pk != null ? `🚗 주차 ${pk}대` : "";
-    const bk = bookable(v);
-    const bTxt = bk ? `📅 예약가능 ${bk}` : "";
-    return { m, r, mTxt, rTxt, fTxt, tTxt, pTxt, bTxt, f };
+    const bLines = bookRows(v).slice().sort((a, b) => a.month.localeCompare(b.month)).map(bookLine);
+    return { m, r, mTxt, rTxt, fTxt, tTxt, pTxt, bLines, f };
   }
 
   function infoHtml(v) {
@@ -296,7 +289,7 @@
       <p>🏛 대관 ${esc(p.rTxt)} · 💐 ${esc(p.fTxt)}${p.pTxt ? ` · ${esc(p.pTxt)}` : ""}</p>
       ${p.tTxt ? `<p><b>💰 ${esc(p.tTxt)}</b></p>` : ""}
       ${v.cap || guar(v) ? `<p>👥 수용 ${v.cap ?? "-"} · 보증 ${guar(v) ?? "-"}명${num(store.get(v).guests) != null ? " ✎" : ""}</p>` : ""}
-      ${p.bTxt ? `<p class="mine">${esc(p.bTxt)}</p>` : ""}
+      ${p.bLines.length ? `<p class="mine">${p.bLines.join("<br>")}</p>` : ""}
       ${v.note ? `<p>${esc(v.note)}</p>` : ""}
       ${u.memo ? `<p class="iw-memo">📝 ${esc(u.memo)}</p>` : ""}
       ${linksHtml(v)}
@@ -312,13 +305,14 @@
       if (!state.types.has(v.type)) return false;
       if (state.statuses.size && !state.statuses.has(u.status || "none")) return false;
       const m = meal(v), r = rent(v);
-      if (state.onlyMine && ["meal", "rent", "flower", "parking"].every((k) => num(u[k]) == null) && !bookable(v)) return false;
+      if (state.onlyMine && ["meal", "rent", "flower", "parking"].every((k) => num(u[k]) == null) && !bookRows(v).length) return false;
       if (state.priceMax < MAX.price && (!m || m.lo > state.priceMax)) return false;
       if (state.rentMax < MAX.rent && (!r || r.lo > state.rentMax)) return false;
       if (state.guests > 0 && !(v.cap >= state.guests)) return false;
       if (state.parkMin > 0 && !(parking(v) >= state.parkMin)) return false;
-      if (state.bookableMax) { const bm = bookableMonth(v); if (!bm || bm > state.bookableMax) return false; }
-      if (q && ![v.name, v.area, v.region, v.addr, v.note, TYPES[v.type].label, u.memo, u.bookable].join(" ").toLowerCase().includes(q)) return false;
+      if (state.onlyBookable && !bookRows(v).length) return false;
+      if (state.bookableMax) { const bm = earliestBookMonth(v); if (!bm || bm > state.bookableMax) return false; }
+      if (q && ![v.name, v.area, v.region, v.addr, v.note, TYPES[v.type].label, u.memo].join(" ").toLowerCase().includes(q)) return false;
       return true;
     });
 
@@ -355,12 +349,28 @@
         ${p.pTxt ? `<span class="mine">${esc(p.pTxt)}</span>` : ""}
       </div>
       ${p.tTxt ? `<div class="total">💰 ${esc(p.tTxt)}</div>` : ""}
-      ${p.bTxt && !active ? `<p class="memo-preview">${esc(p.bTxt)}</p>` : ""}
+      ${p.bLines.length && !active ? `<p class="memo-preview">${p.bLines.join("<br>")}</p>` : ""}
       ${v.note ? `<p class="note">${esc(v.note)}</p>` : ""}
       ${u.memo && !active ? `<p class="memo-preview">📝 ${esc(u.memo)}</p>` : ""}
       ${u.by && !active && (u.memo || u.status) ? `<p class="by">✎ ${esc(u.by)}</p>` : ""}
       ${active ? editorHtml(v, u) : ""}
     </li>`;
+  }
+
+  function bookRowsHtml(v) {
+    const rows = rawBookRows(v);
+    return `<div class="bk" data-bk>
+      <div class="row-label">예약 가능 월 <button type="button" class="bk-add" data-bk-add>＋ 추가</button></div>
+      ${rows.length ? rows.map((r, i) => `<div class="bk-row" data-bk-row="${i}">
+        <input type="month" data-bk-k="month" value="${esc(r.month)}" />
+        <div class="seg bk-season">
+          <button type="button" class="${r.season === "off" ? "" : "on"}" data-bk-k="season" data-bk-v="peak">성수기</button>
+          <button type="button" class="${r.season === "off" ? "on" : ""}" data-bk-k="season" data-bk-v="off">비수기</button>
+        </div>
+        <span class="bk-meal"><input data-bk-k="meal" inputmode="decimal" placeholder="식대" value="${esc(r.meal)}" />만</span>
+        <button type="button" class="bk-del" data-bk-del>✕</button>
+      </div>`).join("") : `<p class="hint">업체에 전화로 확인한 예약 가능 월·성수기 여부·식대를 적어두면, 위쪽 필터로 그 달까지 가능한 곳만 걸러볼 수 있어요.</p>`}
+    </div>`;
   }
 
   function editorHtml(v, u) {
@@ -376,10 +386,10 @@
         <label>보증인원<span><input data-field="guests" inputmode="numeric" placeholder="${v.guar ?? "-"}" value="${esc(u.guests)}" />명</span></label>
         <label>꽃값 (포함이면 0)<span><input data-field="flower" inputmode="decimal" placeholder="?" value="${esc(u.flower)}" />만원</span></label>
         <label>주차<span><input data-field="parking" inputmode="numeric" placeholder="?" value="${esc(u.parking)}" />대</span></label>
-        <label>예약 가능 월<span><input data-field="bookable" placeholder="예: 26.12부터, 27.3 잔여" value="${esc(u.bookable)}" /></span></label>
         <label>전화번호<span><input data-field="phone" type="tel" placeholder="02-1234-5678" value="${esc(u.phone)}" /></span></label>
       </div>
-      <p class="hint">회색 글씨 = 원래 데이터. 고치면 같이 보는 사람한테도 반영되고, 지우면 원래 값으로 돌아가요. 범위는 <b>9.5~11</b>처럼.${v.mealOff ? ` 참가격 공시 식대 ${range({ lo: v.mealOff[0], hi: v.mealOff[1] })}.` : ""} 예약 가능 월엔 업체에 확인한 내용을 자유롭게 적어두면 되고(예: <b>26.12부터</b>), 그 안의 연·월로 위쪽 필터가 동작해요.</p>
+      <p class="hint">회색 글씨 = 원래 데이터. 고치면 같이 보는 사람한테도 반영되고, 지우면 원래 값으로 돌아가요. 범위는 <b>9.5~11</b>처럼.${v.mealOff ? ` 참가격 공시 식대 ${range({ lo: v.mealOff[0], hi: v.mealOff[1] })}.` : ""}</p>
+      ${bookRowsHtml(v)}
       <div class="photos">
         ${photos.of(v).map((p) => `<img class="ph" data-photo="${p.id}" src="${p.thumb}" alt="" />`).join("")}
         <label class="ph-add">＋ 사진<input type="file" accept="image/*" multiple hidden data-photo-input /></label>
@@ -517,6 +527,7 @@
     };
     [els.price, els.rent, els.guests, els.park].forEach((el) => el.addEventListener("input", onRange));
     els.onlyMine.addEventListener("change", () => { state.onlyMine = els.onlyMine.checked; refit(); });
+    els.onlyBookable.addEventListener("change", () => { state.onlyBookable = els.onlyBookable.checked; refit(); });
 
     els.bookableFilter.addEventListener("change", () => {
       state.bookableMax = els.bookableFilter.value;
@@ -559,6 +570,31 @@
       }
       const ph = e.target.closest("[data-photo]");
       if (ph) { openPhoto(v, ph.dataset.photo); return; }
+      if (e.target.closest("[data-bk-add]")) {
+        const rows = rawBookRows(v).slice();
+        rows.push({ month: "", season: "peak", meal: "" });
+        store.set(v, { bookables: rows });
+        afterEdit(v, { full: true });
+        return;
+      }
+      const bkDel = e.target.closest("[data-bk-del]");
+      if (bkDel) {
+        const idx = +bkDel.closest("[data-bk-row]").dataset.bkRow;
+        const rows = rawBookRows(v).slice();
+        rows.splice(idx, 1);
+        store.set(v, { bookables: rows.length ? rows : null });
+        afterEdit(v, { full: true });
+        return;
+      }
+      const bkSeason = e.target.closest('[data-bk-k="season"]');
+      if (bkSeason) {
+        const idx = +bkSeason.closest("[data-bk-row]").dataset.bkRow;
+        const rows = rawBookRows(v).slice();
+        rows[idx] = { ...rows[idx], season: bkSeason.dataset.bkV };
+        store.set(v, { bookables: rows });
+        afterEdit(v, { full: true });
+        return;
+      }
       if (e.target.closest("[data-editor]")) return;
       if (state.activeId === id) { state.activeId = null; rerenderItem(id); return; }
       select(id);
@@ -572,10 +608,27 @@
 
     const saveT = {};
     els.list.addEventListener("input", (e) => {
-      const f = e.target.dataset.field; if (!f) return;
-      const id = +e.target.closest(".item").dataset.id, v = VENUES[id], key = id + ":" + f, val = e.target.value.trim();
-      clearTimeout(saveT[key]);
-      saveT[key] = setTimeout(() => { store.set(v, { [f]: val }); afterEdit(v); refreshMeta(id); }, 300);
+      const f = e.target.dataset.field;
+      if (f) {
+        const id = +e.target.closest(".item").dataset.id, v = VENUES[id], key = id + ":" + f, val = e.target.value.trim();
+        clearTimeout(saveT[key]);
+        saveT[key] = setTimeout(() => { store.set(v, { [f]: val }); afterEdit(v); refreshMeta(id); }, 300);
+        return;
+      }
+      const bk = e.target.dataset.bkK;
+      if (bk === "month" || bk === "meal") {
+        const id = +e.target.closest(".item").dataset.id, v = VENUES[id];
+        const idx = +e.target.closest("[data-bk-row]").dataset.bkRow;
+        const key = id + ":bk:" + idx + ":" + bk, val = e.target.value.trim();
+        clearTimeout(saveT[key]);
+        saveT[key] = setTimeout(() => {
+          const rows = rawBookRows(v).slice();
+          rows[idx] = { ...rows[idx], [bk]: val };
+          store.set(v, { bookables: rows });
+          afterEdit(v);
+          refreshMeta(id);
+        }, 300);
+      }
     });
 
     els.exportBtn.addEventListener("click", () => {
