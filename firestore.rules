@@ -44,5 +44,12 @@ service cloud.firestore {
         && request.resource.data.lng is number && request.resource.data.lng > 124 && request.resource.data.lng < 132
         && (!('addr' in request.resource.data) || (request.resource.data.addr is string && request.resource.data.addr.size() <= 300));
     }
+
+    // 전화번호 자동 조회 캐시 (구글 장소검색 결과) — 모두 읽기, 형식 맞으면 쓰기. 직접 입력한 전화번호(rooms/*/venues)가 항상 우선.
+    match /phones/{venue} {
+      allow read: if true;
+      allow create, update: if request.resource.data.keys().hasOnly(['phone'])
+        && request.resource.data.phone is string && request.resource.data.phone.size() <= 20;
+    }
   }
 }

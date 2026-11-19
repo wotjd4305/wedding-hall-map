@@ -10,6 +10,7 @@
   const CENTER = { lat: 37.47, lng: 127.0 };
   const STORE_KEY = "wedding-hall-map:v1";
   const GEO_KEY = "wedding-hall-map:geo";
+  const PHONE_KEY = "wedding-hall-map:phone";
   const MAX = { price: 20, rent: 2500 };
   const REGIONS = [...new Set(VENUES.map((v) => v.region))];
 
@@ -73,6 +74,19 @@
     set(name, val) {
       if (this.backend) this.backend.set(name, val);
       try { const d = JSON.parse(localStorage.getItem(GEO_KEY) || "{}"); d[name] = val; localStorage.setItem(GEO_KEY, JSON.stringify(d)); } catch {}
+    }
+  };
+
+  // ── 저장소: 전화번호 자동조회 캐시 (공유 DB 있으면 거기, 없으면 브라우저) — 직접 입력한 전화번호가 항상 우선 ──
+  const phoneCache = {
+    backend: null,
+    async all() {
+      if (this.backend) { try { return await this.backend.all(); } catch (e) { console.warn(e); } }
+      try { return JSON.parse(localStorage.getItem(PHONE_KEY) || "{}"); } catch { return {}; }
+    },
+    set(name, val) {
+      if (this.backend) this.backend.set(name, val);
+      try { const d = JSON.parse(localStorage.getItem(PHONE_KEY) || "{}"); d[name] = val; localStorage.setItem(PHONE_KEY, JSON.stringify(d)); } catch {}
     }
   };
 
@@ -233,7 +247,7 @@
   }
   const flower = (v) => num(store.get(v).flower);
   const parking = (v) => num(store.get(v).parking);
-  const phone = (v) => (store.get(v).phone || "").trim() || null;
+  const phone = (v) => (store.get(v).phone || "").trim() || v.phoneAuto || null;
   // 예약 가능 월: 월·성수기/비수기·식대를 행 단위로 직접 입력 (내가 전화로 확인한 값)
   const rawBookRows = (v) => store.get(v).bookables || [];
   const bookRows = (v) => rawBookRows(v).filter((r) => r && r.month);
@@ -391,7 +405,7 @@
         <label>보증인원<span><input data-field="guests" inputmode="numeric" placeholder="${v.guar ?? "-"}" value="${esc(u.guests)}" />명</span></label>
         <label>꽃값 (포함이면 0)<span><input data-field="flower" inputmode="decimal" placeholder="?" value="${esc(u.flower)}" />만원</span></label>
         <label>주차<span><input data-field="parking" inputmode="numeric" placeholder="?" value="${esc(u.parking)}" />대</span></label>
-        <label>전화번호<span><input data-field="phone" type="tel" placeholder="02-1234-5678" value="${esc(u.phone)}" /></span></label>
+        <label>전화번호<span><input data-field="phone" type="tel" placeholder="${esc(v.phoneAuto || "02-1234-5678")}" value="${esc(u.phone)}" /></span></label>
       </div>
       <p class="hint">회색 글씨 = 원래 데이터. 고치면 같이 보는 사람한테도 반영되고, 지우면 원래 값으로 돌아가요. 범위는 <b>9.5~11</b>처럼.${v.mealOff ? ` 참가격 공시 식대 ${range({ lo: v.mealOff[0], hi: v.mealOff[1] })}.` : ""}</p>
       ${bookRowsHtml(v)}
@@ -860,6 +874,45 @@
     render();
   }
 
+  // ── 전화번호 자동 조회: 캐시 적용 → (구글지도 + AUTO_PHONE일 때) 장소검색으로 나머지 조회 ──
+  // 연락처 데이터(전화번호)는 위치 검색보다 비싼 요금제로 청구되니 AUTO_PHONE일 때만 동작, 결과는 공유 DB에 캐싱해서 한 번만 조회.
+  async function refinePhones() {
+    const cache = await phoneCache.all();
+    VENUES.forEach((v) => { if (cache[v.name] && !v.phoneAuto) v.phoneAuto = cache[v.name]; });
+    render();
+    if (!map || map.kind !== "google" || !CFG.AUTO_PHONE) return;
+
+    const todo = VENUES.filter((v) => !v.phoneAuto && !cache[v.name]);
+    if (!todo.length) return;
+    let Place;
+    try { ({ Place } = await google.maps.importLibrary("places")); } catch (e) { console.warn(e); return; }
+
+    let done = 0, ok = 0;
+    for (const v of todo) {
+      try {
+        const { places } = await Place.searchByText({
+          textQuery: `${v.name.replace(/\(.*?\)|_.*$/g, " ").trim()} ${regionWord(v)} ${v.area}`,
+          fields: ["nationalPhoneNumber"],
+          locationBias: { center: { lat: v._lat0, lng: v._lng0 }, radius: 20000 },
+          maxResultCount: 1, language: "ko", region: "kr"
+        });
+        const p = places && places[0];
+        if (p && p.nationalPhoneNumber) { v.phoneAuto = p.nationalPhoneNumber; phoneCache.set(v.name, p.nationalPhoneNumber); ok++; }
+      } catch (e) {
+        console.warn("전화번호 조회 실패", v.name, e);
+        if (String(e).match(/PERMISSION|not authorized|API_NOT|ApiNotActivated|REQUEST_DENIED/i) || done === 0) {
+          showBadge("전화번호 자동 조회는 Places API (New) 연락처 데이터 사용 설정이 필요해요");
+          return;
+        }
+      }
+      done++;
+      if (done % 10 === 0 || done === todo.length) showBadge(`전화번호 조회 중… ${done}/${todo.length}`);
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    showBadge(`전화번호 조회 완료 (${ok}곳)`);
+    render();
+  }
+
   // ── 부팅 ────────────────────────────────
   function loadScript(src) {
     return new Promise((res, rej) => {
@@ -884,6 +937,7 @@
     render(); map.fit(filtered());
     await fbReady.catch(() => {});
     refineLocations();
+    refinePhones();
   }
 
   async function bootLeaflet(reason) {
@@ -937,6 +991,14 @@
         const out = {}; snap.forEach((d) => { out[decodeURIComponent(d.id)] = d.data(); }); return out;
       },
       set(name, val) { fs.setDoc(fs.doc(db, "geo", encodeURIComponent(name)), val).catch((e) => console.warn("geo 저장 실패", e)); }
+    };
+
+    phoneCache.backend = {
+      async all() {
+        const snap = await fs.getDocs(fs.collection(db, "phones"));
+        const out = {}; snap.forEach((d) => { out[decodeURIComponent(d.id)] = d.data().phone; }); return out;
+      },
+      set(name, val) { fs.setDoc(fs.doc(db, "phones", encodeURIComponent(name)), { phone: val }).catch((e) => console.warn("전화번호 저장 실패", e)); }
     };
 
     const metaCol = fs.collection(db, "rooms", room, "photoMeta");
