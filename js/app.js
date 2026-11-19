@@ -238,7 +238,7 @@
   const rawBookRows = (v) => store.get(v).bookables || [];
   const bookRows = (v) => rawBookRows(v).filter((r) => r && r.month);
   const earliestBookMonth = (v) => bookRows(v).map((r) => r.month).sort()[0] || null;
-  const bookLine = (r) => `📅 ${r.month.replace("-", ".")} ${r.season === "off" ? "비수기" : "성수기"}${r.meal ? ` 식대 ${esc(r.meal)}만` : ""}`;
+  const bookLine = (r) => `📅 ${r.month.replace("-", ".")} ${r.season === "off" ? "비수기" : "성수기"}${r.meal ? ` 식대 ${esc(r.meal)}만` : ""}${r.rent ? ` 대관 ${esc(r.rent)}만` : ""}`;
   // 필터·정렬에 쓰는 대관료 = 대관료 + 꽃값(입력했을 때)
   function rent(v) {
     const r = hallRent(v), f = flower(v);
@@ -362,14 +362,19 @@
     return `<div class="bk" data-bk>
       <div class="row-label">예약 가능 월 <button type="button" class="bk-add" data-bk-add>＋ 추가</button></div>
       ${rows.length ? rows.map((r, i) => `<div class="bk-row" data-bk-row="${i}">
-        <input type="month" data-bk-k="month" value="${esc(r.month)}" />
-        <div class="seg bk-season">
-          <button type="button" class="${r.season === "off" ? "" : "on"}" data-bk-k="season" data-bk-v="peak">성수기</button>
-          <button type="button" class="${r.season === "off" ? "on" : ""}" data-bk-k="season" data-bk-v="off">비수기</button>
+        <div class="bk-row-top">
+          <input type="month" data-bk-k="month" value="${esc(r.month)}" />
+          <div class="seg bk-season">
+            <button type="button" class="${r.season === "off" ? "" : "on"}" data-bk-k="season" data-bk-v="peak">성수기</button>
+            <button type="button" class="${r.season === "off" ? "on" : ""}" data-bk-k="season" data-bk-v="off">비수기</button>
+          </div>
+          <button type="button" class="bk-del" data-bk-del>✕</button>
         </div>
-        <span class="bk-meal"><input data-bk-k="meal" inputmode="decimal" placeholder="식대" value="${esc(r.meal)}" />만</span>
-        <button type="button" class="bk-del" data-bk-del>✕</button>
-      </div>`).join("") : `<p class="hint">업체에 전화로 확인한 예약 가능 월·성수기 여부·식대를 적어두면, 위쪽 필터로 그 달까지 가능한 곳만 걸러볼 수 있어요.</p>`}
+        <div class="bk-row-prices">
+          <label>식대<input data-bk-k="meal" inputmode="decimal" placeholder="?" value="${esc(r.meal)}" />만</label>
+          <label>대관료<input data-bk-k="rent" inputmode="decimal" placeholder="?" value="${esc(r.rent)}" />만</label>
+        </div>
+      </div>`).join("") : `<p class="hint">업체에 전화로 확인한 예약 가능 월·성수기 여부·식대·대관료를 적어두면, 위쪽 필터로 그 달까지 가능한 곳만 걸러볼 수 있어요.</p>`}
     </div>`;
   }
 
@@ -557,6 +562,16 @@
       t = setTimeout(() => { state.q = els.q.value.trim(); refit(); }, 200);
     });
 
+    // 디바운스 저장 중인 입력(식대·대관료 등)이 있으면, 행 추가/삭제처럼 전체를 다시 그리기 전에 먼저 반영
+    const saveT = {}, savePending = {};
+    const flushPending = () => {
+      Object.keys(saveT).forEach((k) => {
+        clearTimeout(saveT[k]);
+        if (savePending[k]) { savePending[k](); delete savePending[k]; }
+        delete saveT[k];
+      });
+    };
+
     els.list.addEventListener("click", (e) => {
       if (e.target.closest("#moreItems")) { listLimit += LIST_LIMIT * 2; render(); return; }
       const li = e.target.closest(".item"); if (!li) return;
@@ -571,14 +586,16 @@
       const ph = e.target.closest("[data-photo]");
       if (ph) { openPhoto(v, ph.dataset.photo); return; }
       if (e.target.closest("[data-bk-add]")) {
+        flushPending();
         const rows = rawBookRows(v).slice();
-        rows.push({ month: "", season: "peak", meal: "" });
+        rows.push({ month: "", season: "peak", meal: "", rent: "" });
         store.set(v, { bookables: rows });
         afterEdit(v, { full: true });
         return;
       }
       const bkDel = e.target.closest("[data-bk-del]");
       if (bkDel) {
+        flushPending();
         const idx = +bkDel.closest("[data-bk-row]").dataset.bkRow;
         const rows = rawBookRows(v).slice();
         rows.splice(idx, 1);
@@ -592,7 +609,8 @@
         const rows = rawBookRows(v).slice();
         rows[idx] = { ...rows[idx], season: bkSeason.dataset.bkV };
         store.set(v, { bookables: rows });
-        afterEdit(v, { full: true });
+        bkSeason.closest(".bk-season").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === bkSeason));
+        afterEdit(v);
         return;
       }
       if (e.target.closest("[data-editor]")) return;
@@ -606,28 +624,29 @@
       uploadPhotos(VENUES[id], e.target.files).finally(() => { e.target.value = ""; });
     });
 
-    const saveT = {};
     els.list.addEventListener("input", (e) => {
       const f = e.target.dataset.field;
       if (f) {
         const id = +e.target.closest(".item").dataset.id, v = VENUES[id], key = id + ":" + f, val = e.target.value.trim();
         clearTimeout(saveT[key]);
-        saveT[key] = setTimeout(() => { store.set(v, { [f]: val }); afterEdit(v); refreshMeta(id); }, 300);
+        savePending[key] = () => { store.set(v, { [f]: val }); afterEdit(v); refreshMeta(id); };
+        saveT[key] = setTimeout(() => { savePending[key](); delete savePending[key]; }, 300);
         return;
       }
       const bk = e.target.dataset.bkK;
-      if (bk === "month" || bk === "meal") {
+      if (bk === "month" || bk === "meal" || bk === "rent") {
         const id = +e.target.closest(".item").dataset.id, v = VENUES[id];
         const idx = +e.target.closest("[data-bk-row]").dataset.bkRow;
         const key = id + ":bk:" + idx + ":" + bk, val = e.target.value.trim();
         clearTimeout(saveT[key]);
-        saveT[key] = setTimeout(() => {
+        savePending[key] = () => {
           const rows = rawBookRows(v).slice();
           rows[idx] = { ...rows[idx], [bk]: val };
           store.set(v, { bookables: rows });
           afterEdit(v);
           refreshMeta(id);
-        }, 300);
+        };
+        saveT[key] = setTimeout(() => { savePending[key](); delete savePending[key]; }, 300);
       }
     });
 
