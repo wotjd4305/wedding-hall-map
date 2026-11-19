@@ -11,7 +11,7 @@ window.APP_CONFIG = {
   // true로 바꾸면 전화번호 없는 곳들을 Places API(New)로 한 번씩 자동 조회해서 채워줌 (직접 입력한 전화번호가 항상 우선)
   // 연락처 정보(전화번호)는 위치 검색보다 비싼 요금제(Contact Data)로 청구되고, 찾은 뒤엔 공유 DB에 캐싱돼서 그 다음부턴 다시 조회 안 함.
   // Cloud Console에서 Places API (New) 켜져 있어야 하고, 512곳이면 실제 비용이 발생하니 단가는 구글 클라우드 가격표에서 미리 확인할 것.
-  AUTO_PHONE: false,
+  AUTO_PHONE: true,
 
   FIREBASE_CONFIG: {
     apiKey: "AIzaSyBuPVCEHgwr3XbiBLwT6ll_UJrjptc2ozg",
