@@ -317,7 +317,10 @@
     let arr = VENUES.filter((v) => {
       const u = store.get(v);
       if (state.region !== "all" && v.region !== state.region) return false;
-      if (state.area !== "all" && v.area !== state.area) return false;
+      if (state.area !== "all") {
+        const exact = state.area.includes(" ");
+        if (exact ? v.area !== state.area : v.area.split(" ")[0] !== state.area) return false;
+      }
       if (!state.types.has(v.type)) return false;
       if (state.statuses.size && !state.statuses.has(u.status || "none")) return false;
       const m = meal(v), r = rent(v);
@@ -501,11 +504,30 @@
 
   const refit = () => { listLimit = LIST_LIMIT; render(); map && map.fit(filtered()); };
 
+  // "성남시 분당구"처럼 구분된 동네는 "성남시"(상위) + "ㄴ 분당구"(하위) 두 단계로 보여줌.
+  // 상위를 고르면 하위 전부(및 구분 없는 "성남시" 단독 표기까지) 포함해서 걸러짐.
   function buildAreaOptions() {
     const pool = state.region === "all" ? VENUES : VENUES.filter((v) => v.region === state.region);
-    const areas = [...new Set(pool.map((v) => v.area))].sort((a, b) => a.localeCompare(b, "ko"));
-    els.areaSel.innerHTML = `<option value="all">전체 동네</option>` + areas.map((a) => `<option value="${esc(a)}">${esc(a)}</option>`).join("");
-    els.areaSel.value = areas.includes(state.area) ? state.area : "all";
+    const areas = [...new Set(pool.map((v) => v.area))];
+    const groups = new Map();
+    areas.forEach((a) => {
+      const token = a.split(" ")[0];
+      if (!groups.has(token)) groups.set(token, new Set());
+      groups.get(token).add(a);
+    });
+    const tokens = [...groups.keys()].sort((a, b) => a.localeCompare(b, "ko"));
+    const values = new Set(["all"]);
+    let html = `<option value="all">전체 동네</option>`;
+    tokens.forEach((token) => {
+      html += `<option value="${esc(token)}">${esc(token)}</option>`;
+      values.add(token);
+      [...groups.get(token)].filter((a) => a !== token).sort((a, b) => a.localeCompare(b, "ko")).forEach((sub) => {
+        html += `<option value="${esc(sub)}">　ㄴ ${esc(sub.slice(token.length).trim())}</option>`;
+        values.add(sub);
+      });
+    });
+    els.areaSel.innerHTML = html;
+    els.areaSel.value = values.has(state.area) ? state.area : "all";
     state.area = els.areaSel.value;
   }
 
