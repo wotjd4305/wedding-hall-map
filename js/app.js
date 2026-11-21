@@ -180,6 +180,7 @@
   const state = {
     q: "",
     region: "all",
+    area: "all",
     types: new Set(Object.keys(TYPES)),
     statuses: new Set(),
     priceMax: MAX.price,
@@ -197,7 +198,7 @@
   const $ = (s) => document.querySelector(s);
   const els = {
     list: $("#list"), count: $("#count"), checked: $("#checked"), q: $("#q"),
-    regionSeg: $("#regionSeg"), typeChips: $("#typeChips"), statusChips: $("#statusChips"),
+    regionSeg: $("#regionSeg"), areaSel: $("#areaSel"), typeChips: $("#typeChips"), statusChips: $("#statusChips"),
     moreToggle: $("#moreToggle"), more: $("#more"),
     price: $("#price"), priceVal: $("#priceVal"), rent: $("#rent"), rentVal: $("#rentVal"),
     guests: $("#guests"), guestVal: $("#guestVal"), park: $("#park"), parkVal: $("#parkVal"),
@@ -316,6 +317,7 @@
     let arr = VENUES.filter((v) => {
       const u = store.get(v);
       if (state.region !== "all" && v.region !== state.region) return false;
+      if (state.area !== "all" && v.area !== state.area) return false;
       if (!state.types.has(v.type)) return false;
       if (state.statuses.size && !state.statuses.has(u.status || "none")) return false;
       const m = meal(v), r = rent(v);
@@ -499,8 +501,17 @@
 
   const refit = () => { listLimit = LIST_LIMIT; render(); map && map.fit(filtered()); };
 
+  function buildAreaOptions() {
+    const pool = state.region === "all" ? VENUES : VENUES.filter((v) => v.region === state.region);
+    const areas = [...new Set(pool.map((v) => v.area))].sort((a, b) => a.localeCompare(b, "ko"));
+    els.areaSel.innerHTML = `<option value="all">전체 동네</option>` + areas.map((a) => `<option value="${esc(a)}">${esc(a)}</option>`).join("");
+    els.areaSel.value = areas.includes(state.area) ? state.area : "all";
+    state.area = els.areaSel.value;
+  }
+
   function buildControls() {
     els.regionSeg.innerHTML = [`<button class="on" data-region="all">전체</button>`, ...REGIONS.map((r) => `<button data-region="${r}">${r}</button>`)].join("");
+    buildAreaOptions();
 
     els.typeChips.innerHTML = Object.entries(TYPES).map(([k, t]) =>
       `<button class="chip on" data-type="${k}" style="color:${t.color}"><i style="background:${t.color}"></i><span style="color:var(--ink)">${t.label}</span></button>`
@@ -526,9 +537,13 @@
     els.regionSeg.addEventListener("click", (e) => {
       const b = e.target.closest("button"); if (!b) return;
       state.region = b.dataset.region;
+      state.area = "all";
       els.regionSeg.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+      buildAreaOptions();
       refit();
     });
+
+    els.areaSel.addEventListener("change", () => { state.area = els.areaSel.value; refit(); });
 
     els.moreToggle.addEventListener("click", () => {
       els.more.hidden = !els.more.hidden;
